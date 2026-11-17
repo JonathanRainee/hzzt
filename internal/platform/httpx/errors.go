@@ -13,14 +13,16 @@ import (
 	"github.com/JonathanRainee/hzzt/internal/platform/apperror"
 )
 
-type errorBody struct {
+// ErrorBody is the error object inside the envelope.
+type ErrorBody struct {
 	Code    string         `json:"code"`
 	Message string         `json:"message"`
 	Details map[string]any `json:"details"`
 }
 
-type errorEnvelope struct {
-	Error     errorBody `json:"error"`
+// ErrorEnvelope is the JSON shape of every error response.
+type ErrorEnvelope struct {
+	Error     ErrorBody `json:"error"`
 	RequestID string    `json:"requestId"`
 }
 
@@ -55,8 +57,8 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(ae.HTTPStatus)
-	_ = json.NewEncoder(w).Encode(errorEnvelope{
-		Error:     errorBody{Code: ae.Code, Message: ae.Message, Details: details},
+	_ = json.NewEncoder(w).Encode(ErrorEnvelope{
+		Error:     ErrorBody{Code: ae.Code, Message: ae.Message, Details: details},
 		RequestID: middleware.GetReqID(r.Context()),
 	})
 }

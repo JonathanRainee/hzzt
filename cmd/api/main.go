@@ -18,6 +18,16 @@ import (
 	"github.com/JonathanRainee/hzzt/internal/server"
 )
 
+// @title			Hzzt API
+// @version		1.0
+// @description	Asset management backend API.
+// @BasePath		/api/v1
+// @schemes		http https
+//
+// @securityDefinitions.apikey	BearerAuth
+// @in							header
+// @name						Authorization
+// @description				JWT access token: "Bearer <token>"
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

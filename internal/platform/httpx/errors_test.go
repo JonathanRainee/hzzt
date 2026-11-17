@@ -13,9 +13,9 @@ import (
 	"github.com/JonathanRainee/hzzt/internal/platform/apperror"
 )
 
-func decode(t *testing.T, rec *httptest.ResponseRecorder) errorEnvelope {
+func decode(t *testing.T, rec *httptest.ResponseRecorder) ErrorEnvelope {
 	t.Helper()
-	var env errorEnvelope
+	var env ErrorEnvelope
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
 	return env
 }

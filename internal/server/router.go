@@ -2,12 +2,16 @@
 package server
 
 import (
+	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/rs/zerolog"
+	httpSwagger "github.com/swaggo/http-swagger/v2"
+
+	_ "github.com/JonathanRainee/hzzt/docs" // registers the generated OpenAPI spec
 
 	"github.com/JonathanRainee/hzzt/internal/config"
 	"github.com/JonathanRainee/hzzt/internal/platform/httpx"
@@ -40,6 +44,14 @@ func NewRouter(cfg *config.Config, log zerolog.Logger, db Pinger) *chi.Mux {
 		r.Get("/health", liveness)
 		r.Get("/health/ready", readiness(db))
 	})
+
+	// Swagger UI is never exposed in production.
+	if !cfg.IsProduction() {
+		r.Get("/api/docs", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/api/docs/index.html", http.StatusMovedPermanently)
+		})
+		r.Get("/api/docs/*", httpSwagger.Handler(httpSwagger.URL("/api/docs/doc.json")))
+	}
 
 	r.NotFound(httpx.NotFoundHandler)
 	r.MethodNotAllowed(httpx.MethodNotAllowedHandler)

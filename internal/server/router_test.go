@@ -104,3 +104,24 @@ func TestHealthReady(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "DATABASE_UNAVAILABLE")
 	assert.NotContains(t, rec.Body.String(), "conn refused")
 }
+
+func TestSwaggerDocsToggle(t *testing.T) {
+	for env, want := range map[string]int{"development": http.StatusOK, "production": http.StatusNotFound} {
+		cfg := &config.Config{Env: env, CORSOrigins: []string{"http://allowed.test"}}
+		h := NewRouter(cfg, zerolog.Nop(), fakePinger{})
+		for _, path := range []string{"/api/docs/index.html", "/api/docs/doc.json"} {
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+			assert.Equal(t, want, rec.Code, env+" "+path)
+		}
+	}
+}
+
+func TestSwaggerSpecContent(t *testing.T) {
+	h := NewRouter(&config.Config{Env: "development"}, zerolog.Nop(), fakePinger{})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/docs/doc.json", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "BearerAuth")
+	assert.Contains(t, rec.Body.String(), "/health/ready")
+}

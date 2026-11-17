@@ -4,7 +4,7 @@ export
 MIGRATIONS_DIR := internal/db/migrations
 SQLC_CONFIG := sqlc.yaml
 
-.PHONY: up down migrate-up migrate-down migrate-status sqlc-gen run test test-e2e lint
+.PHONY: up down migrate-up migrate-down migrate-status sqlc-gen run test test-e2e lint swagger
 
 up:
 	docker compose up -d
@@ -42,3 +42,6 @@ test-e2e:
 
 lint:
 	golangci-lint run
+
+swagger:
+	swag init -g cmd/api/main.go -d . --exclude test,docs --parseInternal -o docs --outputTypes go,json,yaml
