@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,7 +18,7 @@ import (
 )
 
 func testRouter() http.Handler {
-	r := NewRouter(&config.Config{CORSOrigins: []string{"http://allowed.test"}}, zerolog.Nop())
+	r := NewRouter(&config.Config{CORSOrigins: []string{"http://allowed.test"}}, zerolog.Nop(), fakePinger{})
 	r.Post("/echo", func(w http.ResponseWriter, r *http.Request) {
 		if _, err := io.ReadAll(r.Body); err != nil {
 			http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
@@ -72,4 +74,33 @@ func TestNotFoundEnvelope(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
 	assert.NotEmpty(t, env["requestId"])
 	assert.Equal(t, "NOT_FOUND", env["error"].(map[string]any)["code"])
+}
+
+type fakePinger struct{ err error }
+
+func (f fakePinger) Ping(context.Context) (int32, error) { return 1, f.err }
+
+func healthRouter(p Pinger) http.Handler {
+	return NewRouter(&config.Config{CORSOrigins: []string{"http://allowed.test"}}, zerolog.Nop(), p)
+}
+
+func TestHealthLive(t *testing.T) {
+	// Liveness must not depend on the DB: even a failing pinger returns 200.
+	rec := httptest.NewRecorder()
+	healthRouter(fakePinger{err: errors.New("down")}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/health", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"status":"ok"}`, rec.Body.String())
+}
+
+func TestHealthReady(t *testing.T) {
+	rec := httptest.NewRecorder()
+	healthRouter(fakePinger{}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/health/ready", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"status":"ok"}`, rec.Body.String())
+
+	rec = httptest.NewRecorder()
+	healthRouter(fakePinger{err: errors.New("conn refused")}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/health/ready", nil))
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assert.Contains(t, rec.Body.String(), "DATABASE_UNAVAILABLE")
+	assert.NotContains(t, rec.Body.String(), "conn refused")
 }

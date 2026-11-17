@@ -18,7 +18,7 @@ import (
 //
 // Still to be added by later tasks/phases: rate limiter, AuthMiddleware (P2) and
 // SpaceMemberMiddleware (P3, applied per route group, not globally).
-func NewRouter(cfg *config.Config, log zerolog.Logger) *chi.Mux {
+func NewRouter(cfg *config.Config, log zerolog.Logger, db Pinger) *chi.Mux {
 	r := chi.NewRouter()
 
 	// RequestID runs first so every envelope (including recovered panics)
@@ -35,6 +35,11 @@ func NewRouter(cfg *config.Config, log zerolog.Logger) *chi.Mux {
 		MaxAge:           int((10 * time.Minute).Seconds()),
 	}))
 	r.Use(httpx.BodyLimit(httpx.MaxBodyBytes))
+
+	r.Route("/api/v1", func(r chi.Router) {
+		r.Get("/health", liveness)
+		r.Get("/health/ready", readiness(db))
+	})
 
 	r.NotFound(httpx.NotFoundHandler)
 	r.MethodNotAllowed(httpx.MethodNotAllowedHandler)
