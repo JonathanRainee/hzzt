@@ -1,7 +1,7 @@
 include .env
 export
 
-MIGRATIONS_DIR := db/migrations
+MIGRATIONS_DIR := internal/db/migrations
 SQLC_CONFIG := sqlc.yaml
 
 .PHONY: up down migrate-up migrate-down migrate-status sqlc-gen run test test-e2e lint
