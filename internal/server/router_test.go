@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -55,4 +56,20 @@ func TestRequestIDHeaderAndPanicRecovery(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/panic", nil))
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
+	var env map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
+	assert.NotEmpty(t, env["requestId"])
+	e := env["error"].(map[string]any)
+	assert.Equal(t, "INTERNAL_ERROR", e["code"])
+	assert.NotContains(t, rec.Body.String(), "boom") // no internal detail leaked
+}
+
+func TestNotFoundEnvelope(t *testing.T) {
+	rec := httptest.NewRecorder()
+	testRouter().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/nope", nil))
+	require.Equal(t, http.StatusNotFound, rec.Code)
+	var env map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
+	assert.NotEmpty(t, env["requestId"])
+	assert.Equal(t, "NOT_FOUND", env["error"].(map[string]any)["code"])
 }

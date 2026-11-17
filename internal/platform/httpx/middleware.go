@@ -27,6 +27,8 @@ func RequestLogger(log zerolog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
+			// Make the logger available to WriteError/Recoverer via the context.
+			r = r.WithContext(log.WithContext(r.Context()))
 			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 			next.ServeHTTP(ww, r)
 			status := ww.Status()

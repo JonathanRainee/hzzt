@@ -14,16 +14,17 @@ import (
 )
 
 // NewRouter builds the router with the global middleware chain:
-// recoverer → request ID → request logger → CORS → body limit.
+// request ID → recoverer → request logger → CORS → body limit.
 //
-// Still to be added by later tasks/phases: the custom panic-recovery
-// envelope (P1-T06), rate limiter, AuthMiddleware (P2) and
+// Still to be added by later tasks/phases: rate limiter, AuthMiddleware (P2) and
 // SpaceMemberMiddleware (P3, applied per route group, not globally).
 func NewRouter(cfg *config.Config, log zerolog.Logger) *chi.Mux {
 	r := chi.NewRouter()
 
-	r.Use(middleware.Recoverer) // replaced by the envelope-aware recoverer in P1-T06
+	// RequestID runs first so every envelope (including recovered panics)
+	// carries a requestId; Recoverer sits directly after it.
 	r.Use(middleware.RequestID)
+	r.Use(httpx.Recoverer)
 	r.Use(httpx.RequestLogger(log))
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   cfg.CORSOrigins,
@@ -34,6 +35,9 @@ func NewRouter(cfg *config.Config, log zerolog.Logger) *chi.Mux {
 		MaxAge:           int((10 * time.Minute).Seconds()),
 	}))
 	r.Use(httpx.BodyLimit(httpx.MaxBodyBytes))
+
+	r.NotFound(httpx.NotFoundHandler)
+	r.MethodNotAllowed(httpx.MethodNotAllowedHandler)
 
 	return r
 }
