@@ -1,0 +1,58 @@
+package server
+
+import (
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/JonathanRainee/hzzt/internal/config"
+)
+
+func testRouter() http.Handler {
+	r := NewRouter(&config.Config{CORSOrigins: []string{"http://allowed.test"}}, zerolog.Nop())
+	r.Post("/echo", func(w http.ResponseWriter, r *http.Request) {
+		if _, err := io.ReadAll(r.Body); err != nil {
+			http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	r.Get("/panic", func(http.ResponseWriter, *http.Request) { panic("boom") })
+	return r
+}
+
+func TestCORSAllowlist(t *testing.T) {
+	h := testRouter()
+	for origin, want := range map[string]string{
+		"http://allowed.test": "http://allowed.test",
+		"http://evil.test":    "",
+	} {
+		req := httptest.NewRequest(http.MethodOptions, "/echo", nil)
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Access-Control-Request-Method", "POST")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		assert.Equal(t, want, rec.Header().Get("Access-Control-Allow-Origin"), origin)
+	}
+}
+
+func TestBodyLimit(t *testing.T) {
+	h := testRouter()
+	req := httptest.NewRequest(http.MethodPost, "/echo", strings.NewReader(strings.Repeat("a", 150*1024)))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+}
+
+func TestRequestIDHeaderAndPanicRecovery(t *testing.T) {
+	h := testRouter()
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/panic", nil))
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
+}
