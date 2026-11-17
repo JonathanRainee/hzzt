@@ -270,7 +270,7 @@ Full field lists are defined in each phase. This is the map.
 | Phase | Title | Depends on | Milestone | Status |
 |---|---|---|---|---|
 | P0 | Environment & repository setup (WSL, Docker, Postgres, Go, GitHub) | — | M0 Dev environment | Ready |
-| P1 | Project foundation | P0 | M1 Foundation & Auth | Backlog |
+| P1 | Project foundation | P0 | M1 Foundation & Auth | Done |
 | P2 | Authentication | P1 | M1 | Backlog |
 | P3 | Users, profile & spaces | P2 | M1 | Backlog |
 | P4 | Preferences & app lock | P3 | M1 | Backlog |
@@ -1061,6 +1061,10 @@ DELIVERABLES (report back)
 | FORBIDDEN | 403 | P3 |
 | NOT_FOUND / <ENTITY>_NOT_FOUND | 404 | all |
 | RATE_LIMITED | 429 | P1 |
+| METHOD_NOT_ALLOWED | 405 | P1 |
+| PAYLOAD_TOO_LARGE | 413 | P1 |
+| DATABASE_UNAVAILABLE | 503 (readiness probe) | P1 |
+| INTERNAL_ERROR | 500 | P1 |
 | EMAIL_ALREADY_REGISTERED | 409 | P2 |
 | INVALID_CREDENTIALS | 401 | P2 |
 | REFRESH_TOKEN_REUSED / REFRESH_TOKEN_INVALID | 401 | P2 |
