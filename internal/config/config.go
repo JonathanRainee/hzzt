@@ -16,7 +16,8 @@ type Config struct {
 	Env  string
 	Port int
 
-	DatabaseURL string
+	DatabaseURL   string
+	RunMigrations bool
 
 	JWTAccessSecret string
 	JWTAccessTTL    time.Duration
@@ -88,6 +89,17 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 			fail("PORT must be an integer between 1 and 65535, got %q", v)
 		} else {
 			c.Port = p
+		}
+	}
+
+	// Migrations on boot (default on; the production approach is decided in P18)
+	c.RunMigrations = true
+	if v := str("RUN_MIGRATIONS", ""); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			fail("RUN_MIGRATIONS must be a boolean, got %q", v)
+		} else {
+			c.RunMigrations = b
 		}
 	}
 
