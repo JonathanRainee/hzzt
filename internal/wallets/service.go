@@ -65,11 +65,20 @@ func NewService(database DB, cur *currency.Service, now func() time.Time) *Servi
 	return &Service{db: database, q: sqlc.New(database), currency: cur, now: now}
 }
 
-// Wallet pairs a row with its decoded card style.
+// Wallet pairs a row with its decoded card style and the amount reserved for goals.
 type Wallet struct {
 	sqlc.Wallet
 	Style CardStyle
+	// Reserved is the sum of the wallet's goal allocations (in the wallet's currency).
+	Reserved decimal.Decimal
 }
+
+// Available is the balance that is not reserved for a goal; it may be negative
+// when expenses pushed the wallet below its reserves.
+func (w Wallet) Available() decimal.Decimal { return w.Balance.Sub(w.Reserved) }
+
+// OverReserved reports whether the reserves exceed the balance.
+func (w Wallet) OverReserved() bool { return w.Reserved.GreaterThan(w.Balance) }
 
 func toWallet(w sqlc.Wallet) (Wallet, error) {
 	var cs CardStyle
@@ -108,6 +117,17 @@ func (s *Service) List(ctx context.Context, spaceID uuid.UUID) (ListResult, erro
 	if err != nil {
 		return ListResult{}, err
 	}
+	reserved, err := s.q.ReservedByWallet(ctx, spaceID)
+	if err != nil {
+		return ListResult{}, err
+	}
+	byWallet := make(map[uuid.UUID]decimal.Decimal, len(reserved))
+	for _, r := range reserved {
+		byWallet[r.WalletID] = r.Reserved
+	}
+	for i := range ws {
+		ws[i].Reserved = byWallet[ws[i].ID]
+	}
 	cc, err := s.currency.BuildContext(ctx, spaceID)
 	if err != nil {
 		return ListResult{}, err
@@ -128,7 +148,19 @@ func (s *Service) Get(ctx context.Context, spaceID, id uuid.UUID) (Wallet, error
 	if err != nil {
 		return Wallet{}, err
 	}
-	return toWallet(w)
+	return s.finish(ctx, w)
+}
+
+// finish decodes a wallet row and attaches its reserved amount.
+func (s *Service) finish(ctx context.Context, w sqlc.Wallet) (Wallet, error) {
+	x, err := toWallet(w)
+	if err != nil {
+		return Wallet{}, err
+	}
+	if x.Reserved, err = s.q.ReservedForWallet(ctx, w.ID); err != nil {
+		return Wallet{}, err
+	}
+	return x, nil
 }
 
 // CreateInput describes a new wallet.
@@ -181,7 +213,7 @@ func (s *Service) Create(ctx context.Context, space sqlc.Space, userID uuid.UUID
 	if err != nil {
 		return Wallet{}, err
 	}
-	return toWallet(created)
+	return s.finish(ctx, created)
 }
 
 // writeBalanceTx records a signed balance change as an OPENING_BALANCE or ADJUSTMENT
@@ -245,7 +277,7 @@ func (s *Service) Update(ctx context.Context, spaceID, id uuid.UUID, in UpdateIn
 	if err != nil {
 		return Wallet{}, err
 	}
-	return toWallet(out)
+	return s.finish(ctx, out)
 }
 
 // SetBalance moves the wallet to newBalance by recording an ADJUSTMENT for the
@@ -275,10 +307,10 @@ func (s *Service) SetBalance(ctx context.Context, spaceID, id, userID uuid.UUID,
 	if err != nil {
 		return Wallet{}, err
 	}
-	return toWallet(out)
+	return s.finish(ctx, out)
 }
 
-// Delete soft-deletes a wallet. A non-zero balance needs force.
+// Delete soft-deletes a wallet, releasing its goal reservations. A non-zero balance needs force.
 func (s *Service) Delete(ctx context.Context, spaceID, id uuid.UUID, force bool) error {
 	return db.WithTx(ctx, s.db, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
@@ -291,6 +323,10 @@ func (s *Service) Delete(ctx context.Context, spaceID, id uuid.UUID, force bool)
 		}
 		if !w.Balance.IsZero() && !force {
 			return errHasBalance
+		}
+		// the wallet's goal reservations go with it
+		if err := q.DeleteAllocationsForWallet(ctx, id); err != nil {
+			return err
 		}
 		_, err = q.SoftDeleteWallet(ctx, sqlc.SoftDeleteWalletParams{ID: id, SpaceID: spaceID})
 		return err

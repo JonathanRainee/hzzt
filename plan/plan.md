@@ -285,7 +285,7 @@ Full field lists are defined in each phase. This is the map.
 | P13 | Investment buy/sell through wallets | P9, P10 | M3 | Done |
 | P14 | Shared investments | P10, P13 | M3 | Done |
 | P15 | Other assets & net-worth summary | P9, P14 | M4 Net worth & planning | Done |
-| P16 | Goals | P7 | M4 | Backlog |
+| P16 | Goals | P7 | M4 | Done |
 | P17 | Dashboard, analytics & net-worth history | P8, P15 | M4 | Backlog |
 | P18 | Hardening, docs & deployment | all | M5 Production | Backlog |
 

@@ -35,6 +35,30 @@ type FxRate struct {
 	FetchedAt time.Time       `json:"fetched_at"`
 }
 
+type Goal struct {
+	ID           uuid.UUID       `json:"id"`
+	SpaceID      uuid.UUID       `json:"space_id"`
+	Name         string          `json:"name"`
+	Icon         string          `json:"icon"`
+	Color        string          `json:"color"`
+	TargetAmount decimal.Decimal `json:"target_amount"`
+	Currency     string          `json:"currency"`
+	TargetDate   *time.Time      `json:"target_date"`
+	AchievedAt   *time.Time      `json:"achieved_at"`
+	CreatedByID  uuid.UUID       `json:"created_by_id"`
+	CreatedAt    time.Time       `json:"created_at"`
+	UpdatedAt    time.Time       `json:"updated_at"`
+	DeletedAt    *time.Time      `json:"deleted_at"`
+}
+
+type GoalAllocation struct {
+	ID        uuid.UUID       `json:"id"`
+	GoalID    uuid.UUID       `json:"goal_id"`
+	WalletID  uuid.UUID       `json:"wallet_id"`
+	Amount    decimal.Decimal `json:"amount"`
+	UpdatedAt time.Time       `json:"updated_at"`
+}
+
 type Investment struct {
 	ID                       uuid.UUID           `json:"id"`
 	SpaceID                  uuid.UUID           `json:"space_id"`

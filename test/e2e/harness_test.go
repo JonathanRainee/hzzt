@@ -28,6 +28,7 @@ import (
 	"github.com/JonathanRainee/hzzt/internal/currency"
 	"github.com/JonathanRainee/hzzt/internal/db"
 	"github.com/JonathanRainee/hzzt/internal/db/sqlc"
+	"github.com/JonathanRainee/hzzt/internal/goals"
 	"github.com/JonathanRainee/hzzt/internal/investments"
 	"github.com/JonathanRainee/hzzt/internal/manualassets"
 	"github.com/JonathanRainee/hzzt/internal/marketdata"
@@ -192,13 +193,15 @@ func newTestServer(t *testing.T, limits auth.Limits, userLimits users.Limits, in
 	investmentsSvc := investments.NewService(tx, currencySvc, clock.Now)
 	investmentsSvc.SetMarket(marketSvc)
 	investmentsHandler := investments.NewHandler(investmentsSvc, svc, spacesSvc, invLimits)
+	goalsSvc := goals.NewService(tx, currencySvc, clock.Now)
+	goalsHandler := goals.NewHandler(goalsSvc, svc, spacesSvc)
 	manualAssetsSvc := manualassets.NewService(tx, currencySvc, transactionsSvc, clock.Now)
 	manualAssetsHandler := manualassets.NewHandler(manualAssetsSvc, svc, spacesSvc)
 	networthSvc := networth.NewService(tx, currencySvc, investmentsSvc, manualAssetsSvc, clock.Now)
 	networthHandler := networth.NewHandler(networthSvc, svc, spacesSvc)
 	transfersHandler := transfers.NewHandler(transfers.NewService(tx, transactionsSvc, investmentsSvc, manualAssetsSvc, clock.Now), svc, spacesSvc)
 	marketHandler := marketdata.NewHandler(marketSvc, svc, marketLimits())
-	srv := httptest.NewServer(server.NewRouter(cfg, log, sqlc.New(tx), handler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount, walletsHandler.Mount, transactionsHandler.Mount, transfersHandler.Mount, investmentsHandler.Mount, marketHandler.Mount, manualAssetsHandler.Mount, networthHandler.Mount))
+	srv := httptest.NewServer(server.NewRouter(cfg, log, sqlc.New(tx), handler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount, walletsHandler.Mount, transactionsHandler.Mount, transfersHandler.Mount, investmentsHandler.Mount, marketHandler.Mount, manualAssetsHandler.Mount, networthHandler.Mount, goalsHandler.Mount))
 	t.Cleanup(srv.Close)
 
 	ts := &TestServer{Server: srv, Tx: tx, Email: mail, Events: bus, Auth: svc, Clock: clock, FX: fx, Currency: currencySvc, Categories: categoriesSvc, Investments: investmentsSvc, Market: marketSvc, CMC: cmc, Massive: mas, Networth: networthSvc, t: t}

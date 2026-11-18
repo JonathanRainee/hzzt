@@ -59,23 +59,29 @@ func (h *Handler) Mount(r chi.Router) {
 
 // WalletDTO is the public representation of a wallet.
 type WalletDTO struct {
-	ID         uuid.UUID       `json:"id"`
-	Type       string          `json:"type" enums:"BANK,E_WALLET,CASH,OTHER"`
-	Name       string          `json:"name"`
-	Icon       string          `json:"icon"`
-	Currency   string          `json:"currency" example:"IDR"`
-	Balance    decimal.Decimal `json:"balance" swaggertype:"string" example:"134.26"`
-	IsFavorite bool            `json:"isFavorite"`
-	SortOrder  int             `json:"sortOrder"`
-	CardStyle  CardStyle       `json:"cardStyle"`
-	CreatedAt  time.Time       `json:"createdAt"`
+	ID       uuid.UUID       `json:"id"`
+	Type     string          `json:"type" enums:"BANK,E_WALLET,CASH,OTHER"`
+	Name     string          `json:"name"`
+	Icon     string          `json:"icon"`
+	Currency string          `json:"currency" example:"IDR"`
+	Balance  decimal.Decimal `json:"balance" swaggertype:"string" example:"134.26"`
+	// Reserved is the part of the balance earmarked for goals; Available = balance − reserved
+	// and may be negative when expenses pushed the wallet below its reserves (OverReserved).
+	Reserved     decimal.Decimal `json:"reserved" swaggertype:"string" example:"100"`
+	Available    decimal.Decimal `json:"available" swaggertype:"string" example:"34.26"`
+	OverReserved bool            `json:"overReserved"`
+	IsFavorite   bool            `json:"isFavorite"`
+	SortOrder    int             `json:"sortOrder"`
+	CardStyle    CardStyle       `json:"cardStyle"`
+	CreatedAt    time.Time       `json:"createdAt"`
 }
 
 // ToDTO converts a wallet.
 func ToDTO(w Wallet) WalletDTO {
 	return WalletDTO{
 		ID: w.ID, Type: w.Type, Name: w.Name, Icon: w.Icon, Currency: strings.TrimSpace(w.Currency),
-		Balance: w.Balance, IsFavorite: w.IsFavorite, SortOrder: int(w.SortOrder),
+		Balance: w.Balance, Reserved: w.Reserved, Available: w.Available(), OverReserved: w.OverReserved(),
+		IsFavorite: w.IsFavorite, SortOrder: int(w.SortOrder),
 		CardStyle: w.Style, CreatedAt: w.CreatedAt.UTC(),
 	}
 }
