@@ -197,9 +197,9 @@ type Patch struct {
 }
 
 // Update reverses the old transfer and applies the new one in the same database transaction.
-func (s *Service) Update(ctx context.Context, spaceID, id uuid.UUID, p Patch) (transactions.Detail, error) {
+func (s *Service) Update(ctx context.Context, spaceID, userID, id uuid.UUID, p Patch) (transactions.Detail, error) {
 	if s.isTrade(ctx, spaceID, id) {
-		return s.updateTrade(ctx, spaceID, id, p)
+		return s.updateTrade(ctx, spaceID, userID, id, p)
 	}
 	if p.Investment != nil {
 		return transactions.Detail{}, apperror.Unprocessable(CodeNotSupportedYet, "Investments are not part of a wallet transfer")
@@ -274,7 +274,7 @@ func (s *Service) Update(ctx context.Context, spaceID, id uuid.UUID, p Patch) (t
 }
 
 // updateTrade edits a BUY/SELL.
-func (s *Service) updateTrade(ctx context.Context, spaceID, id uuid.UUID, p Patch) (transactions.Detail, error) {
+func (s *Service) updateTrade(ctx context.Context, spaceID, userID, id uuid.UUID, p Patch) (transactions.Detail, error) {
 	d, err := s.txn.Get(ctx, spaceID, id)
 	if err != nil {
 		return transactions.Detail{}, errTransferNF
@@ -293,16 +293,16 @@ func (s *Service) updateTrade(ctx context.Context, spaceID, id uuid.UUID, p Patc
 		}
 		tp.Quantity, tp.UnitPrice, tp.Fee = iv.Quantity, iv.UnitPrice, iv.Fee
 	}
-	if _, err := s.inv.UpdateTrade(ctx, spaceID, id, tp); err != nil {
+	if _, err := s.inv.UpdateTrade(ctx, spaceID, userID, id, tp); err != nil {
 		return transactions.Detail{}, mapTradeErr(err)
 	}
 	return s.txn.Get(ctx, spaceID, id)
 }
 
 // Delete reverses the transfer (or BUY/SELL) and removes it.
-func (s *Service) Delete(ctx context.Context, spaceID, id uuid.UUID) error {
+func (s *Service) Delete(ctx context.Context, spaceID, userID, id uuid.UUID) error {
 	if s.isTrade(ctx, spaceID, id) {
-		return mapTradeErr(s.inv.DeleteTrade(ctx, spaceID, id))
+		return mapTradeErr(s.inv.DeleteTrade(ctx, spaceID, userID, id))
 	}
 	return db.WithTx(ctx, s.db, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)

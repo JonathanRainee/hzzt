@@ -64,12 +64,21 @@ func NewService(database DB, cur *currency.Service, now func() time.Time) *Servi
 // SetMarket installs market data (prices and instrument linking).
 func (s *Service) SetMarket(m Market) { s.market = m }
 
-// Item is an investment with its valuation.
+// Item is an investment as seen from a space: with the viewer's valuation and,
+// for shared investments, the whole investment's valuation and the shares.
 type Item struct {
 	Investment sqlc.Investment
-	Valuation  Valuation
-	Details    any
-	Realized   RealizedPL
+	// Valuation is the viewer's part: the whole investment when it is not shared.
+	Valuation Valuation
+	// TotalValuation is the whole investment's valuation; set only for shared investments.
+	TotalValuation *Valuation
+	Details        any
+	Realized       RealizedPL
+	// Ownership is OWNER for investments of this space and SHARED_IN for ones shared in.
+	Ownership string
+	// MyShareBps is the viewer's share in basis points (10000 when not shared).
+	MyShareBps   int
+	Participants []ParticipantView
 }
 
 // ListResult is the portfolio: items with valuations and the base-currency summary.
@@ -94,7 +103,9 @@ func (s *Service) marketPrices(ctx context.Context, invs []sqlc.Investment) (map
 	return s.market.MarketPrices(ctx, ids)
 }
 
-func (s *Service) value(inv sqlc.Investment, prices map[uuid.UUID]MarketPrice, cc *currency.ConversionContext, now time.Time) (Item, error) {
+// value values one investment for a viewer. share is nil for an unshared one;
+// participants are the people behind a shared one (masked for the viewer).
+func (s *Service) value(inv sqlc.Investment, prices map[uuid.UUID]MarketPrice, cc *currency.ConversionContext, now time.Time, share *Share, participants []ParticipantView) (Item, error) {
 	var mp *MarketPrice
 	if inv.InstrumentID.Valid {
 		if p, ok := prices[inv.InstrumentID.UUID]; ok {
@@ -105,11 +116,21 @@ func (s *Service) value(inv sqlc.Investment, prices map[uuid.UUID]MarketPrice, c
 	if err != nil {
 		return Item{}, err
 	}
-	return Item{Investment: inv, Valuation: Value(inv, mp, cc, now), Details: details}, nil
+	whole := Value(inv, mp, cc, now)
+	it := Item{Investment: inv, Valuation: whole, Details: details, Ownership: OwnershipOwner, MyShareBps: TotalBps, Participants: participants}
+	if share != nil {
+		total := whole
+		it.TotalValuation = &total
+		it.Valuation = Allocate(whole, share, cc.BaseCurrency)
+		it.MyShareBps = share.MyBps
+	}
+	return it, nil
 }
 
-// List returns the space's investments (optionally one asset type) with valuations and a summary.
-func (s *Service) List(ctx context.Context, spaceID uuid.UUID, assetType string) (ListResult, error) {
+// List returns the space's investments (optionally one asset type) with the
+// viewer's valuations and a summary. With includeShared, investments other people
+// shared into this space are listed too (read-only, flagged SHARED_IN).
+func (s *Service) List(ctx context.Context, spaceID uuid.UUID, assetType string, includeShared bool, viewer uuid.UUID) (ListResult, error) {
 	var t *string
 	if assetType != "" {
 		t = &assetType
@@ -118,32 +139,106 @@ func (s *Service) List(ctx context.Context, spaceID uuid.UUID, assetType string)
 	if err != nil {
 		return ListResult{}, err
 	}
+	invs := append([]sqlc.Investment(nil), rows...)
+	myParticipant := map[uuid.UUID]uuid.UUID{} // shared-in investment → my participant row
+	var sharedIn []sqlc.Investment
+	if includeShared {
+		in, err := s.q.ListSharedInInvestments(ctx, sqlc.ListSharedInInvestmentsParams{AttachedSpaceID: uuid.NullUUID{UUID: spaceID, Valid: true}, AssetType: t})
+		if err != nil {
+			return ListResult{}, err
+		}
+		for _, r := range in {
+			inv := sharedInRow(r)
+			sharedIn = append(sharedIn, inv)
+			myParticipant[inv.ID] = r.MyParticipantID
+			invs = append(invs, inv)
+		}
+	}
+
 	cc, err := s.currency.BuildContext(ctx, spaceID)
 	if err != nil {
 		return ListResult{}, err
 	}
-	prices, err := s.marketPrices(ctx, rows)
+	prices, err := s.marketPrices(ctx, invs)
 	if err != nil {
 		return ListResult{}, err
 	}
-	realized, err := s.realized(ctx, spaceID, cc, rows)
+	people, err := s.participantsOf(ctx, invs)
 	if err != nil {
 		return ListResult{}, err
 	}
+	realized, err := s.realized(ctx, cc, invs)
+	if err != nil {
+		return ListResult{}, err
+	}
+
 	now := s.now()
-	res := ListResult{Items: make([]Item, 0, len(rows))}
-	vals := make([]Valuation, 0, len(rows))
-	for _, r := range rows {
-		it, err := s.value(r, prices, cc, now)
-		if err != nil {
-			return ListResult{}, err
+	res := ListResult{Items: make([]Item, 0, len(invs))}
+	vals := make([]Valuation, 0, len(invs))
+	add := func(inv sqlc.Investment, mine func(sqlc.InvestmentParticipant) bool, ownership string) error {
+		rows := people[inv.ID]
+		var share *Share
+		if len(rows) > 0 {
+			share = shareOf(rows, mine)
 		}
-		it.Realized = realized[r.ID]
+		it, err := s.value(inv, prices, cc, now, share, views(rows, viewer, false))
+		if err != nil {
+			return err
+		}
+		it.Ownership = ownership
+		it.Realized = AllocateRealized(realized[inv.ID], share, cc.BaseCurrency)
 		res.Items = append(res.Items, it)
 		vals = append(vals, it.Valuation)
+		return nil
+	}
+	for _, inv := range rows {
+		inv := inv
+		if err := add(inv, func(p sqlc.InvestmentParticipant) bool { return p.Role == RoleOwner }, OwnershipOwner); err != nil {
+			return ListResult{}, err
+		}
+	}
+	for _, inv := range sharedIn {
+		mine := myParticipant[inv.ID]
+		if err := add(inv, func(p sqlc.InvestmentParticipant) bool { return p.ID == mine }, OwnershipSharedIn); err != nil {
+			return ListResult{}, err
+		}
 	}
 	res.Summary = Summarize(cc.BaseCurrency, vals)
 	return res, nil
+}
+
+// sharedInRow copies the investment columns out of a shared-in listing row.
+func sharedInRow(r sqlc.ListSharedInInvestmentsRow) sqlc.Investment {
+	return sqlc.Investment{
+		ID: r.ID, SpaceID: r.SpaceID, AssetType: r.AssetType, PriceMode: r.PriceMode, Name: r.Name, Symbol: r.Symbol,
+		Icon: r.Icon, QuoteCurrency: r.QuoteCurrency, Quantity: r.Quantity, AvgBuyPrice: r.AvgBuyPrice,
+		ManualPrice: r.ManualPrice, Fees: r.Fees, ManualCurrentValue: r.ManualCurrentValue, PurchaseDate: r.PurchaseDate,
+		EstimatedAnnualChangePct: r.EstimatedAnnualChangePct, ManualFxRate: r.ManualFxRate, Details: r.Details,
+		InstrumentID: r.InstrumentID, IsShared: r.IsShared, CreatedByID: r.CreatedByID, CreatedAt: r.CreatedAt,
+		UpdatedAt: r.UpdatedAt, DeletedAt: r.DeletedAt,
+	}
+}
+
+// participantsOf loads the live participants of every shared investment in invs.
+func (s *Service) participantsOf(ctx context.Context, invs []sqlc.Investment) (map[uuid.UUID][]sqlc.InvestmentParticipant, error) {
+	var ids []uuid.UUID
+	for _, i := range invs {
+		if i.IsShared {
+			ids = append(ids, i.ID)
+		}
+	}
+	out := map[uuid.UUID][]sqlc.InvestmentParticipant{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := s.q.ListLiveParticipantsForInvestments(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		out[r.InvestmentID] = append(out[r.InvestmentID], r)
+	}
+	return out, nil
 }
 
 // Get returns one investment with its valuation.
@@ -158,6 +253,7 @@ func (s *Service) Get(ctx context.Context, spaceID, id uuid.UUID) (Item, error) 
 	return s.item(ctx, inv)
 }
 
+// item values one owned investment from its owner's point of view.
 func (s *Service) item(ctx context.Context, inv sqlc.Investment) (Item, error) {
 	cc, err := s.currency.BuildContext(ctx, inv.SpaceID)
 	if err != nil {
@@ -167,15 +263,24 @@ func (s *Service) item(ctx context.Context, inv sqlc.Investment) (Item, error) {
 	if err != nil {
 		return Item{}, err
 	}
-	it, err := s.value(inv, prices, cc, s.now())
+	people, err := s.participantsOf(ctx, []sqlc.Investment{inv})
 	if err != nil {
 		return Item{}, err
 	}
-	realized, err := s.realized(ctx, inv.SpaceID, cc, []sqlc.Investment{inv})
+	rows := people[inv.ID]
+	var share *Share
+	if len(rows) > 0 {
+		share = shareOf(rows, func(p sqlc.InvestmentParticipant) bool { return p.Role == RoleOwner })
+	}
+	it, err := s.value(inv, prices, cc, s.now(), share, views(rows, inv.CreatedByID, false))
 	if err != nil {
 		return Item{}, err
 	}
-	it.Realized = realized[inv.ID]
+	realized, err := s.realized(ctx, cc, []sqlc.Investment{inv})
+	if err != nil {
+		return Item{}, err
+	}
+	it.Realized = AllocateRealized(realized[inv.ID], share, cc.BaseCurrency)
 	return it, nil
 }
 
@@ -273,14 +378,21 @@ type RealizedPL struct {
 	Sells  int
 }
 
-func (s *Service) realized(ctx context.Context, spaceID uuid.UUID, cc *currency.ConversionContext, invs []sqlc.Investment) (map[uuid.UUID]RealizedPL, error) {
-	rows, err := s.q.RealizedPLByInvestment(ctx, spaceID)
-	if err != nil {
-		return nil, err
-	}
+// realized totals each investment's realized profit/loss, scaled to the viewer's
+// share for shared investments (base values split with the largest-remainder method).
+func (s *Service) realized(ctx context.Context, cc *currency.ConversionContext, invs []sqlc.Investment) (map[uuid.UUID]RealizedPL, error) {
+	ids := make([]uuid.UUID, 0, len(invs))
 	quote := map[uuid.UUID]string{}
 	for _, i := range invs {
+		ids = append(ids, i.ID)
 		quote[i.ID] = strings.TrimSpace(i.QuoteCurrency)
+	}
+	if len(ids) == 0 {
+		return map[uuid.UUID]RealizedPL{}, nil
+	}
+	rows, err := s.q.RealizedPLByInvestment(ctx, ids)
+	if err != nil {
+		return nil, err
 	}
 	out := make(map[uuid.UUID]RealizedPL, len(rows))
 	for _, r := range rows {
@@ -288,10 +400,8 @@ func (s *Service) realized(ctx context.Context, spaceID uuid.UUID, cc *currency.
 			continue
 		}
 		rp := RealizedPL{Amount: r.RealizedPl, Sells: int(r.Sells)}
-		if q, ok := quote[r.InvestmentID.UUID]; ok {
-			if base, err := currency.Convert(r.RealizedPl, q, cc.BaseCurrency, cc); err == nil {
-				rp.Base = &base
-			}
+		if base, err := currency.Convert(r.RealizedPl, quote[r.InvestmentID.UUID], cc.BaseCurrency, cc); err == nil {
+			rp.Base = &base
 		}
 		out[r.InvestmentID.UUID] = rp
 	}
@@ -335,12 +445,15 @@ func (s *Service) firstPrice(ctx context.Context, inv sqlc.Investment) {
 }
 
 // RefreshPrice refreshes the market price of an AUTO investment on demand.
-func (s *Service) RefreshPrice(ctx context.Context, spaceID, id uuid.UUID) (Item, error) {
+func (s *Service) RefreshPrice(ctx context.Context, spaceID, userID, id uuid.UUID) (Item, error) {
 	inv, err := s.q.GetInvestment(ctx, sqlc.GetInvestmentParams{ID: id, SpaceID: spaceID})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Item{}, errInvestmentNF
 	}
 	if err != nil {
+		return Item{}, err
+	}
+	if err := requireOwner(inv, userID); err != nil {
 		return Item{}, err
 	}
 	meta, _ := MetaFor(inv.AssetType)
@@ -359,7 +472,7 @@ func (s *Service) RefreshPrice(ctx context.Context, spaceID, id uuid.UUID) (Item
 }
 
 // Update applies a patch to an investment; assetType never changes.
-func (s *Service) Update(ctx context.Context, space sqlc.Space, id uuid.UUID, p PatchInput) (Item, error) {
+func (s *Service) Update(ctx context.Context, space sqlc.Space, userID, id uuid.UUID, p PatchInput) (Item, error) {
 	var out sqlc.Investment
 	err := db.WithTx(ctx, s.db, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
@@ -368,6 +481,9 @@ func (s *Service) Update(ctx context.Context, space sqlc.Space, id uuid.UUID, p 
 			return errInvestmentNF
 		}
 		if err != nil {
+			return err
+		}
+		if err := requireOwner(cur, userID); err != nil {
 			return err
 		}
 		spec, err := p.apply(cur, strings.TrimSpace(space.BaseCurrency))
@@ -408,13 +524,17 @@ func (s *Service) Update(ctx context.Context, space sqlc.Space, id uuid.UUID, p 
 }
 
 // Delete soft-deletes an investment.
-func (s *Service) Delete(ctx context.Context, spaceID, id uuid.UUID) error {
-	n, err := s.q.SoftDeleteInvestment(ctx, sqlc.SoftDeleteInvestmentParams{ID: id, SpaceID: spaceID})
-	if err != nil {
+func (s *Service) Delete(ctx context.Context, spaceID, userID, id uuid.UUID) error {
+	return db.WithTx(ctx, s.db, func(tx pgx.Tx) error {
+		q := s.q.WithTx(tx)
+		inv, err := lockInvestment(ctx, q, spaceID, id)
+		if err != nil {
+			return err
+		}
+		if err := requireOwner(inv, userID); err != nil {
+			return err
+		}
+		_, err = q.SoftDeleteInvestment(ctx, sqlc.SoftDeleteInvestmentParams{ID: id, SpaceID: spaceID})
 		return err
-	}
-	if n == 0 {
-		return errInvestmentNF
-	}
-	return nil
+	})
 }

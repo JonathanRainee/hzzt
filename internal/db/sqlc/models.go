@@ -61,6 +61,29 @@ type Investment struct {
 	DeletedAt                *time.Time          `json:"deleted_at"`
 }
 
+type InvestmentParticipant struct {
+	ID              uuid.UUID     `json:"id"`
+	InvestmentID    uuid.UUID     `json:"investment_id"`
+	Role            string        `json:"role"`
+	UserID          uuid.NullUUID `json:"user_id"`
+	DisplayName     string        `json:"display_name"`
+	Email           *string       `json:"email"`
+	ShareBps        int32         `json:"share_bps"`
+	Status          string        `json:"status"`
+	AttachedSpaceID uuid.NullUUID `json:"attached_space_id"`
+	InvitedAt       time.Time     `json:"invited_at"`
+	RespondedAt     *time.Time    `json:"responded_at"`
+}
+
+type InvestmentShareChange struct {
+	ID           uuid.UUID `json:"id"`
+	InvestmentID uuid.UUID `json:"investment_id"`
+	ChangedByID  uuid.UUID `json:"changed_by_id"`
+	Before       []byte    `json:"before"`
+	After        []byte    `json:"after"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
 type JobRun struct {
 	ID             uuid.UUID `json:"id"`
 	Name           string    `json:"name"`

@@ -251,6 +251,60 @@ func TestSummarize(t *testing.T) {
 	assert.Equal(t, "IDR", empty.Currency)
 }
 
-func TestOwnershipFactorIsOneForNow(t *testing.T) {
-	assert.True(t, d("1").Equal(OwnershipFactor(sqlc.Investment{})))
+func TestOwnershipFactor(t *testing.T) {
+	assert.True(t, d("1").Equal(OwnershipFactor(nil)), "an unshared investment is fully owned")
+	assert.True(t, d("0.3").Equal(OwnershipFactor(&Share{MyBps: 3000, AllBps: []int{7000, 3000}, MyIndex: 1})))
+	assert.True(t, d("0.0001").Equal(OwnershipFactor(&Share{MyBps: 1})))
+}
+
+func TestAllocateSplitsTheBaseValueExactly(t *testing.T) {
+	// 1,000.01 USD of value shared 50/30/20: the parts must add up exactly
+	cc := ctx("USD", true, nil, nil)
+	i := inv(TypeUSStock, "USD", "1", "0", "1000.01", "0")
+	total := Value(i, nil, cc, now)
+	require.NotNil(t, total.Base)
+
+	all := []int{5000, 3000, 2000}
+	var parts []Valuation
+	for idx, bps := range all {
+		parts = append(parts, Allocate(total, &Share{MyBps: bps, AllBps: all, MyIndex: idx}, "USD"))
+	}
+	assert.True(t, d("500.01").Equal(parts[0].Base.MarketValue), parts[0].Base.MarketValue.String())
+	assert.True(t, d("300").Equal(parts[1].Base.MarketValue))
+	assert.True(t, d("200").Equal(parts[2].Base.MarketValue))
+	assert.True(t, d("1000.01").Equal(parts[0].Base.MarketValue.Add(parts[1].Base.MarketValue).Add(parts[2].Base.MarketValue)))
+
+	t.Run("native figures scale by the factor and the total is untouched", func(t *testing.T) {
+		assert.True(t, d("300.003").Equal(parts[1].MarketValue))
+		assert.True(t, d("1000.01").Equal(total.MarketValue))
+		assert.Equal(t, total.Price, parts[1].Price)
+	})
+	t.Run("profit and loss add up too", func(t *testing.T) {
+		withCost := inv(TypeUSStock, "USD", "1", "333.33", "1000.01", "0")
+		whole := Value(withCost, nil, cc, now)
+		sumPL, sumCost := decimal.Zero, decimal.Zero
+		for idx, bps := range all {
+			a := Allocate(whole, &Share{MyBps: bps, AllBps: all, MyIndex: idx}, "USD")
+			assert.True(t, a.Base.MarketValue.Sub(a.Base.CostBasis).Equal(a.Base.UnrealizedPL), "pl = value − cost per share")
+			sumPL, sumCost = sumPL.Add(a.Base.UnrealizedPL), sumCost.Add(a.Base.CostBasis)
+		}
+		assert.True(t, whole.Base.UnrealizedPL.Round(2).Equal(sumPL), "%s vs %s", whole.Base.UnrealizedPL, sumPL)
+		assert.True(t, whole.Base.CostBasis.Round(2).Equal(sumCost))
+	})
+	t.Run("IDR has no minor units", func(t *testing.T) {
+		idr := inv(TypeIDStock, "IDR", "100", "0", "1001", "0") // 100,100 IDR
+		whole := Value(idr, nil, ctx("IDR", true, nil, nil), now)
+		a := Allocate(whole, &Share{MyBps: 3333, AllBps: []int{3333, 3333, 3334}, MyIndex: 0}, "IDR")
+		assert.True(t, a.Base.MarketValue.Round(0).Equal(a.Base.MarketValue), "whole rupiah: %s", a.Base.MarketValue)
+	})
+	t.Run("a nil share returns the whole valuation", func(t *testing.T) {
+		assert.Equal(t, total, Allocate(total, nil, "USD"))
+	})
+	t.Run("without a base valuation only the native figures scale", func(t *testing.T) {
+		noRate := Value(inv(TypeMutualFund, "EUR", "1", "0", "10", "0"), nil, cc, now)
+		require.Nil(t, noRate.Base)
+		a := Allocate(noRate, &Share{MyBps: 5000, AllBps: []int{5000, 5000}, MyIndex: 0}, "USD")
+		assert.Nil(t, a.Base)
+		assert.True(t, d("5").Equal(a.MarketValue))
+	})
 }

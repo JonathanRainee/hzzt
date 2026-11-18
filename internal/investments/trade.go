@@ -262,6 +262,9 @@ func (s *Service) Trade(ctx context.Context, spaceID, userID uuid.UUID, in Trade
 		if err != nil {
 			return err
 		}
+		if err := requireOwner(inv, userID); err != nil {
+			return err
+		}
 		r, err := computeTrade(inv, PositionOf(inv), w, in.Action, in.Leg, in.Amount, nil, cc)
 		if err != nil {
 			return err
@@ -301,7 +304,7 @@ func legOf(t sqlc.Transaction) Leg {
 // position still equals the position this trade left behind (otherwise 409
 // POSITION_CHANGED_SINCE); the old effect is reversed and the new one applied
 // on the position as it was before the trade.
-func (s *Service) UpdateTrade(ctx context.Context, spaceID, id uuid.UUID, p TradePatch) (sqlc.Transaction, error) {
+func (s *Service) UpdateTrade(ctx context.Context, spaceID, userID, id uuid.UUID, p TradePatch) (sqlc.Transaction, error) {
 	cc, err := s.currency.BuildContext(ctx, spaceID)
 	if err != nil {
 		return sqlc.Transaction{}, err
@@ -322,6 +325,9 @@ func (s *Service) UpdateTrade(ctx context.Context, spaceID, id uuid.UUID, p Trad
 		}
 		inv, err := lockInvestment(ctx, q, spaceID, old.InvestmentID.UUID)
 		if err != nil {
+			return err
+		}
+		if err := requireOwner(inv, userID); err != nil {
 			return err
 		}
 		before, after, err := snapshots(old)
@@ -397,7 +403,7 @@ func (s *Service) UpdateTrade(ctx context.Context, spaceID, id uuid.UUID, p Trad
 // reversing the wallet effect. Like an edit it needs the position to be unchanged
 // since (409 POSITION_CHANGED_SINCE). If the investment itself was deleted only the
 // wallet effect is reversed.
-func (s *Service) DeleteTrade(ctx context.Context, spaceID, id uuid.UUID) error {
+func (s *Service) DeleteTrade(ctx context.Context, spaceID, userID, id uuid.UUID) error {
 	return db.WithTx(ctx, s.db, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
 		old, err := q.GetTransactionForUpdate(ctx, sqlc.GetTransactionForUpdateParams{ID: id, SpaceID: spaceID})
@@ -417,6 +423,9 @@ func (s *Service) DeleteTrade(ctx context.Context, spaceID, id uuid.UUID) error 
 		}
 		var before Position
 		if !gone {
+			if err := requireOwner(inv, userID); err != nil {
+				return err
+			}
 			var after Position
 			if before, after, err = snapshots(old); err != nil {
 				return err

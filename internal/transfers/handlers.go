@@ -370,7 +370,8 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, apperror.Validation("Validation failed", f))
 		return
 	}
-	d, err := h.svc.Update(r.Context(), spaces.SpaceIDFromContext(r.Context()), id, p)
+	user, _ := auth.UserFromContext(r.Context())
+	d, err := h.svc.Update(r.Context(), spaces.SpaceIDFromContext(r.Context()), user.ID, id, p)
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
@@ -393,7 +394,8 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	id, err := transferID(r)
 	if err == nil {
-		err = h.svc.Delete(r.Context(), spaces.SpaceIDFromContext(r.Context()), id)
+		user, _ := auth.UserFromContext(r.Context())
+		err = h.svc.Delete(r.Context(), spaces.SpaceIDFromContext(r.Context()), user.ID, id)
 	}
 	if err != nil {
 		httpx.WriteError(w, r, err)

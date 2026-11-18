@@ -1067,6 +1067,171 @@ const docTemplate = `{
                 }
             }
         },
+        "/me/shared-investment-invitations": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Invitations addressed to my account or to my account's email (case-insensitive), including ones sent before I registered. Shows the investment and my share, never the owner's space.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sharing"
+                ],
+                "summary": "My pending shared-investment invitations",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/investments.InvitationDTO"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/me/shared-investment-invitations/{participantId}/accept": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The investment is attached to the given space (you must be a member of it, and it must not be the owner's space); that space then counts my share and lists it with ` + "`" + `include=shared` + "`" + `.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sharing"
+                ],
+                "summary": "Accept a shared-investment invitation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Invitation (participant) ID",
+                        "name": "participantId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Space to attach it to",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/investments.acceptRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "409": {
+                        "description": "SHARE_INVITATION_ANSWERED",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/me/shared-investment-invitations/{participantId}/decline": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "sharing"
+                ],
+                "summary": "Decline a shared-investment invitation (the share stays allocated until the owner changes it)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Invitation (participant) ID",
+                        "name": "participantId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "409": {
+                        "description": "SHARE_INVITATION_ANSWERED",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/me/shared-investments/{participantId}/leave": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "My share stays allocated but becomes a name-only participant; the owner finds the change in the audit trail.",
+                "tags": [
+                    "sharing"
+                ],
+                "summary": "Leave a shared investment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "My participant ID",
+                        "name": "participantId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "422": {
+                        "description": "SHARE_OWNER_CANNOT_LEAVE",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/spaces": {
             "get": {
                 "security": [
@@ -1825,7 +1990,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "` + "`" + `summary` + "`" + ` totals the base-currency values. Investments without a usable FX rate are left out of the totals and reported in ` + "`" + `summary.warnings` + "`" + `. ` + "`" + `unrealizedPlPct` + "`" + ` is a percentage (12.5 = +12.5%).",
+                "description": "Values are the viewer's: for a shared investment ` + "`" + `valuation` + "`" + ` is my share (base-currency parts add up exactly across all participants) and ` + "`" + `totalValuation` + "`" + ` the whole. ` + "`" + `summary` + "`" + ` totals the base-currency values. Investments without a usable FX rate are left out of the totals and reported in ` + "`" + `summary.warnings` + "`" + `. ` + "`" + `unrealizedPlPct` + "`" + ` is a percentage (12.5 = +12.5%).",
                 "produces": [
                     "application/json"
                 ],
@@ -1845,6 +2010,12 @@ const docTemplate = `{
                         "type": "string",
                         "description": "CRYPTO, ID_STOCK, US_STOCK, MUTUAL_FUND or GLOBAL_ETF",
                         "name": "assetType",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "shared: also list investments other people shared into this space (read-only, ownership SHARED_IN, valued for my share)",
+                        "name": "include",
                         "in": "query"
                     }
                 ],
@@ -2085,6 +2256,177 @@ const docTemplate = `{
                 }
             }
         },
+        "/spaces/{spaceId}/investments/{id}/participants": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sharing"
+                ],
+                "summary": "List who an investment is shared with (owner only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Investment ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/investments.ParticipantsResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "OWNER_ONLY",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Full replacement. Include yourself (` + "`" + `isOwner: true` + "`" + `, or your own email) with a share above 0. Shares are percentages with up to 2 decimals and the shares of all participants must add up to exactly 100.00 (422 SHARE_TOTAL_INVALID); at most 10 people (422 PARTICIPANT_LIMIT). A participant with an ` + "`" + `email` + "`" + ` becomes INVITED, one with only a ` + "`" + `displayName` + "`" + ` is ACTIVE right away (someone without an account). The response is identical whether or not an email belongs to an account. Entries left out of the list are removed. Shares count whatever the invitation status. Only the owner may edit a shared investment, its prices, trades and the participant list (403 OWNER_ONLY for other members of the space).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sharing"
+                ],
+                "summary": "Share an investment: replace the participant list (owner only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Investment ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Participants",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/investments.SetParticipantsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/investments.ParticipantsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "403": {
+                        "description": "OWNER_ONLY",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "422": {
+                        "description": "SHARE_TOTAL_INVALID / PARTICIPANT_LIMIT",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "sharing"
+                ],
+                "summary": "Stop sharing: 100% returns to the owner and everyone else is removed (owner only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Investment ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "description": "OWNER_ONLY",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/spaces/{spaceId}/investments/{id}/refresh-price": {
             "post": {
                 "security": [
@@ -2143,6 +2485,61 @@ const docTemplate = `{
                     },
                     "502": {
                         "description": "UPSTREAM_PROVIDER_ERROR",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/spaces/{spaceId}/investments/{id}/share-changes": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sharing"
+                ],
+                "summary": "Audit trail of an investment's sharing arrangement, newest first (owner only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Investment ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/investments.ShareChangeDTO"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "OWNER_ONLY",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/httpx.ErrorEnvelope"
                         }
@@ -4118,8 +4515,26 @@ const docTemplate = `{
                 "manualPrice": {
                     "type": "string"
                 },
+                "myShareBps": {
+                    "type": "integer",
+                    "example": 3000
+                },
                 "name": {
                     "type": "string"
+                },
+                "ownership": {
+                    "description": "Ownership is OWNER for this space's own investments and SHARED_IN for ones\nothers shared into it (read-only).",
+                    "type": "string",
+                    "enum": [
+                        "OWNER",
+                        "SHARED_IN"
+                    ]
+                },
+                "participants": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/investments.ParticipantDTO"
+                    }
                 },
                 "priceMode": {
                     "type": "string",
@@ -4146,11 +4561,62 @@ const docTemplate = `{
                 "symbol": {
                     "type": "string"
                 },
+                "totalValuation": {
+                    "description": "TotalValuation is the whole investment's valuation; present only for shared investments.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/investments.Valuation"
+                        }
+                    ]
+                },
                 "updatedAt": {
                     "type": "string"
                 },
                 "valuation": {
-                    "$ref": "#/definitions/investments.Valuation"
+                    "description": "Valuation is the viewer's part: the whole investment unless it is shared.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/investments.Valuation"
+                        }
+                    ]
+                }
+            }
+        },
+        "investments.InvitationDTO": {
+            "type": "object",
+            "properties": {
+                "investment": {
+                    "type": "object",
+                    "properties": {
+                        "assetType": {
+                            "type": "string"
+                        },
+                        "icon": {
+                            "type": "string"
+                        },
+                        "name": {
+                            "type": "string"
+                        },
+                        "symbol": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "invitedAt": {
+                    "type": "string"
+                },
+                "ownerName": {
+                    "type": "string"
+                },
+                "participantId": {
+                    "type": "string"
+                },
+                "shareBps": {
+                    "type": "integer"
+                },
+                "sharePct": {
+                    "type": "string",
+                    "example": "30.00"
                 }
             }
         },
@@ -4165,6 +4631,61 @@ const docTemplate = `{
                 },
                 "summary": {
                     "$ref": "#/definitions/investments.Summary"
+                }
+            }
+        },
+        "investments.ParticipantDTO": {
+            "type": "object",
+            "properties": {
+                "displayName": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "invitedAt": {
+                    "type": "string"
+                },
+                "isMe": {
+                    "type": "boolean"
+                },
+                "role": {
+                    "type": "string",
+                    "enum": [
+                        "OWNER",
+                        "PARTICIPANT"
+                    ]
+                },
+                "shareBps": {
+                    "type": "integer",
+                    "example": 3000
+                },
+                "sharePct": {
+                    "type": "string",
+                    "example": "30.00"
+                },
+                "status": {
+                    "type": "string",
+                    "enum": [
+                        "ACTIVE",
+                        "INVITED",
+                        "DECLINED",
+                        "REMOVED"
+                    ]
+                }
+            }
+        },
+        "investments.ParticipantsResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/investments.ParticipantDTO"
+                    }
                 }
             }
         },
@@ -4246,6 +4767,42 @@ const docTemplate = `{
                 },
                 "sells": {
                     "type": "integer"
+                }
+            }
+        },
+        "investments.SetParticipantsRequest": {
+            "type": "object",
+            "required": [
+                "participants"
+            ],
+            "properties": {
+                "participants": {
+                    "type": "array",
+                    "maxItems": 50,
+                    "minItems": 1,
+                    "items": {
+                        "$ref": "#/definitions/investments.participantRequest"
+                    }
+                }
+            }
+        },
+        "investments.ShareChangeDTO": {
+            "type": "object",
+            "properties": {
+                "after": {
+                    "type": "object"
+                },
+                "before": {
+                    "type": "object"
+                },
+                "changedById": {
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
                 }
             }
         },
@@ -4385,6 +4942,46 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/currency.Warning"
                     }
+                }
+            }
+        },
+        "investments.acceptRequest": {
+            "type": "object",
+            "required": [
+                "spaceId"
+            ],
+            "properties": {
+                "spaceId": {
+                    "type": "string"
+                }
+            }
+        },
+        "investments.participantRequest": {
+            "type": "object",
+            "required": [
+                "displayName",
+                "sharePct"
+            ],
+            "properties": {
+                "displayName": {
+                    "type": "string",
+                    "maxLength": 120,
+                    "minLength": 1
+                },
+                "email": {
+                    "type": "string",
+                    "maxLength": 254
+                },
+                "isOwner": {
+                    "type": "boolean"
+                },
+                "participantId": {
+                    "type": "string"
+                },
+                "sharePct": {
+                    "type": "string",
+                    "maxLength": 16,
+                    "example": "30.00"
                 }
             }
         },
