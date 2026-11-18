@@ -286,7 +286,7 @@ Full field lists are defined in each phase. This is the map.
 | P14 | Shared investments | P10, P13 | M3 | Done |
 | P15 | Other assets & net-worth summary | P9, P14 | M4 Net worth & planning | Done |
 | P16 | Goals | P7 | M4 | Done |
-| P17 | Dashboard, analytics & net-worth history | P8, P15 | M4 | Backlog |
+| P17 | Dashboard, analytics & net-worth history | P8, P15 | M4 | Done |
 | P18 | Hardening, docs & deployment | all | M5 Production | Backlog |
 
 Critical path: P0 → P1 → P2 → P3 → P5 → P7 → P8 → P9 → P13 → P14 → P15 → P17 → P18. P4, P6, P10 to P12, and P16 can run in parallel branches once their dependencies are done.
