@@ -71,3 +71,26 @@ func TestInvalidEnums(t *testing.T) {
 	assert.Contains(t, err.Error(), "MASSIVE_MODE")
 	assert.Contains(t, err.Error(), "EMAIL_DRIVER")
 }
+
+func TestFXProvider(t *testing.T) {
+	c, err := LoadFrom(env(valid()))
+	require.NoError(t, err)
+	assert.Equal(t, "frankfurter", c.FXProvider, "default needs no key")
+
+	m := valid()
+	m["FX_PROVIDER"] = "FreeCurrencyAPI"
+	_, err = LoadFrom(env(m))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "FREECURRENCY_API_KEY is required")
+
+	m["FREECURRENCY_API_KEY"] = "k"
+	c, err = LoadFrom(env(m))
+	require.NoError(t, err)
+	assert.Equal(t, "freecurrencyapi", c.FXProvider)
+	assert.Equal(t, "k", c.FreeCurrencyAPIKey)
+
+	m["FX_PROVIDER"] = "nope"
+	_, err = LoadFrom(env(m))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "FX_PROVIDER must be one of")
+}
