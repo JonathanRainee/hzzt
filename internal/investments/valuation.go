@@ -10,6 +10,8 @@ import (
 
 	"github.com/JonathanRainee/hzzt/internal/currency"
 	"github.com/JonathanRainee/hzzt/internal/db/sqlc"
+	"github.com/JonathanRainee/hzzt/internal/platform/allocation"
+	"github.com/JonathanRainee/hzzt/internal/platform/money"
 )
 
 // StaleAfter is how old a market price may be before it is reported as stale.
@@ -54,9 +56,46 @@ type Valuation struct {
 	Warnings []currency.Warning `json:"warnings"`
 }
 
-// OwnershipFactor is the share of an investment that belongs to this space (P14
-// changes it for shared investments). Today every investment is fully owned.
-func OwnershipFactor(sqlc.Investment) decimal.Decimal { return decimal.NewFromInt(1) }
+// Share is one person's part of a shared investment, in basis points of 10,000.
+type Share struct {
+	MyBps   int
+	AllBps  []int // every non-removed participant, in the stable order the allocation uses
+	MyIndex int   // position of this share in AllBps
+}
+
+// OwnershipFactor is the fraction of an investment that belongs to the viewer:
+// 1 for an unshared investment, my_bps / 10,000 for a shared one.
+func OwnershipFactor(sh *Share) decimal.Decimal {
+	if sh == nil {
+		return decimal.NewFromInt(1)
+	}
+	return decimal.NewFromInt(int64(sh.MyBps)).Div(decimal.NewFromInt(10000))
+}
+
+// Allocate turns the valuation of a whole investment into the viewer's share.
+// Native figures scale by the ownership factor. Base-currency value and cost are
+// each divided between all participants with the largest-remainder method at the
+// base currency's minor units, so the parts add up to the total exactly; the
+// share's profit/loss is value − cost, which then adds up exactly as well.
+func Allocate(v Valuation, sh *Share, baseCurrency string) Valuation {
+	if sh == nil {
+		return v
+	}
+	f := OwnershipFactor(sh)
+	out := v
+	out.MarketValue = v.MarketValue.Mul(f)
+	out.CostBasis = v.CostBasis.Mul(f)
+	out.UnrealizedPL = out.MarketValue.Sub(out.CostBasis)
+	if v.Base != nil {
+		mu := money.MinorUnits(baseCurrency)
+		mv := allocation.Split(v.Base.MarketValue, sh.AllBps, mu)[sh.MyIndex]
+		cost := allocation.Split(v.Base.CostBasis, sh.AllBps, mu)[sh.MyIndex]
+		b := *v.Base
+		b.MarketValue, b.CostBasis, b.UnrealizedPL = mv, cost, mv.Sub(cost)
+		out.Base = &b
+	}
+	return out
+}
 
 var hundred = decimal.NewFromInt(100)
 
@@ -68,7 +107,8 @@ var hundred = decimal.NewFromInt(100)
 //  4. unrealizedPl = marketValue − costBasis; unrealizedPlPct = pl / costBasis × 100.
 //  5. conversion to the base currency: with auto FX off and a manual_fx_rate on the
 //     investment, that rate; otherwise the space's ConversionContext.
-//  6. both values are scaled by the ownership factor.
+//  6. Value returns the figures of the whole investment; Allocate scales them to
+//     the viewer's share when the investment is shared.
 func Value(inv sqlc.Investment, mp *MarketPrice, cc *currency.ConversionContext, now time.Time) Valuation {
 	v := Valuation{PriceSource: SourceManual, Warnings: []currency.Warning{}}
 
@@ -86,7 +126,7 @@ func Value(inv sqlc.Investment, mp *MarketPrice, cc *currency.ConversionContext,
 	}
 	v.Price = price
 
-	factor := OwnershipFactor(inv)
+	factor := decimal.NewFromInt(1)
 	marketValue := inv.Quantity.Mul(price)
 	if inv.ManualCurrentValue.Valid {
 		marketValue = inv.ManualCurrentValue.Decimal
