@@ -11,10 +11,14 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	_ "time/tzdata" // IANA timezones even in minimal containers
 
+	"github.com/JonathanRainee/hzzt/internal/auth"
 	"github.com/JonathanRainee/hzzt/internal/config"
 	"github.com/JonathanRainee/hzzt/internal/db"
 	"github.com/JonathanRainee/hzzt/internal/db/sqlc"
+	"github.com/JonathanRainee/hzzt/internal/platform/email"
+	"github.com/JonathanRainee/hzzt/internal/platform/events"
 	"github.com/JonathanRainee/hzzt/internal/server"
 )
 
@@ -58,9 +62,25 @@ func run() error {
 
 	log := zerolog.New(os.Stdout).With().Timestamp().Logger()
 
+	bus := events.NewBus(log)
+	var sender email.Sender = email.Console{Log: log}
+	if cfg.EmailDriver == "resend" {
+		sender = email.Resend{APIKey: cfg.ResendAPIKey, From: cfg.EmailFrom}
+	}
+	authSvc := auth.NewService(pool, auth.Options{
+		AccessSecret: cfg.JWTAccessSecret,
+		AccessTTL:    cfg.JWTAccessTTL,
+		RefreshTTL:   time.Duration(cfg.RefreshTTLDays) * 24 * time.Hour,
+		AppURL:       cfg.AppURL,
+		Email:        sender,
+		Events:       bus,
+		Log:          log,
+	})
+	authHandler := auth.NewHandler(authSvc, auth.DefaultLimits(), cfg.IsProduction())
+
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           server.NewRouter(cfg, log, sqlc.New(pool)),
+		Handler:           server.NewRouter(cfg, log, sqlc.New(pool), authHandler.Mount),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,
