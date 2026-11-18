@@ -34,7 +34,8 @@ type Config struct {
 	MassiveAPIKey string
 	MassiveMode   string
 
-	FXProvider string
+	FXProvider         string
+	FreeCurrencyAPIKey string
 }
 
 // IsProduction reports whether the app runs in production.
@@ -71,16 +72,17 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 	}
 
 	c := &Config{
-		Env:           str("ENV", "development"),
-		DatabaseURL:   required("DATABASE_URL"),
-		AppURL:        required("APP_URL"),
-		EmailDriver:   str("EMAIL_DRIVER", "console"),
-		ResendAPIKey:  str("RESEND_API_KEY", ""),
-		EmailFrom:     str("EMAIL_FROM", "Hzzt <onboarding@resend.dev>"),
-		CMCAPIKey:     str("CMC_API_KEY", ""),
-		MassiveAPIKey: str("MASSIVE_API_KEY", ""),
-		MassiveMode:   strings.ToUpper(str("MASSIVE_MODE", "EOD")),
-		FXProvider:    str("FX_PROVIDER", "frankfurter"),
+		Env:                str("ENV", "development"),
+		DatabaseURL:        required("DATABASE_URL"),
+		AppURL:             required("APP_URL"),
+		EmailDriver:        str("EMAIL_DRIVER", "console"),
+		ResendAPIKey:       str("RESEND_API_KEY", ""),
+		EmailFrom:          str("EMAIL_FROM", "Hzzt <onboarding@resend.dev>"),
+		CMCAPIKey:          str("CMC_API_KEY", ""),
+		MassiveAPIKey:      str("MASSIVE_API_KEY", ""),
+		MassiveMode:        strings.ToUpper(str("MASSIVE_MODE", "EOD")),
+		FXProvider:         strings.ToLower(str("FX_PROVIDER", "frankfurter")),
+		FreeCurrencyAPIKey: str("FREECURRENCY_API_KEY", ""),
 	}
 
 	// Port
@@ -157,6 +159,16 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 	case "EOD", "SNAPSHOT":
 	default:
 		fail("MASSIVE_MODE must be one of EOD, SNAPSHOT, got %q", c.MassiveMode)
+	}
+
+	switch c.FXProvider {
+	case "frankfurter":
+	case "freecurrencyapi":
+		if c.FreeCurrencyAPIKey == "" {
+			fail("FREECURRENCY_API_KEY is required when FX_PROVIDER=freecurrencyapi")
+		}
+	default:
+		fail("FX_PROVIDER must be one of frankfurter, freecurrencyapi, got %q", c.FXProvider)
 	}
 
 	if len(problems) > 0 {

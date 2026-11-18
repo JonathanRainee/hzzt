@@ -15,6 +15,7 @@ import (
 
 	"github.com/JonathanRainee/hzzt/internal/auth"
 	"github.com/JonathanRainee/hzzt/internal/config"
+	"github.com/JonathanRainee/hzzt/internal/currency"
 	"github.com/JonathanRainee/hzzt/internal/db"
 	"github.com/JonathanRainee/hzzt/internal/db/sqlc"
 	"github.com/JonathanRainee/hzzt/internal/platform/email"
@@ -87,9 +88,21 @@ func run() error {
 	usersSvc.Subscribe(bus) // user.registered → default preferences
 	usersHandler := users.NewHandler(usersSvc, authSvc, users.DefaultLimits())
 
+	var fxProvider currency.FxProvider = currency.NewFrankfurterProvider("")
+	if cfg.FXProvider == "freecurrencyapi" {
+		fxProvider = currency.NewFreeCurrencyProvider("", cfg.FreeCurrencyAPIKey)
+	}
+	currencySvc := currency.NewService(pool, currency.Options{Provider: fxProvider, Log: log})
+	currencyHandler := currency.NewHandler(currencySvc, authSvc, spacesSvc)
+	stopJobs, err := currencySvc.StartJobs(ctx, log)
+	if err != nil {
+		return err
+	}
+	defer stopJobs()
+
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           server.NewRouter(cfg, log, sqlc.New(pool), authHandler.Mount, usersHandler.Mount, spacesHandler.Mount),
+		Handler:           server.NewRouter(cfg, log, sqlc.New(pool), authHandler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,

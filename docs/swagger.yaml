@@ -99,6 +99,55 @@ definitions:
     - newPassword
     - token
     type: object
+  currency.Currency:
+    properties:
+      code:
+        type: string
+      minorUnits:
+        type: integer
+      name:
+        type: string
+      symbol:
+        type: string
+    type: object
+  currency.LatestResponse:
+    properties:
+      asOf:
+        example: "2026-11-18"
+        type: string
+      base:
+        example: IDR
+        type: string
+      rates:
+        additionalProperties:
+          type: string
+        type: object
+      source:
+        example: freecurrencyapi
+        type: string
+    type: object
+  currency.ManualRateDTO:
+    properties:
+      base:
+        example: USD
+        type: string
+      quote:
+        example: IDR
+        type: string
+      rate:
+        example: "16000"
+        type: string
+      updatedAt:
+        type: string
+    type: object
+  currency.putManualRequest:
+    properties:
+      rate:
+        example: "16000"
+        type: string
+    required:
+    - rate
+    type: object
   httpx.ErrorBody:
     properties:
       code:
@@ -506,6 +555,51 @@ paths:
       summary: Reset password with an emailed token (revokes all sessions)
       tags:
       - auth
+  /currencies:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/currency.Currency'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: List supported currencies
+      tags:
+      - currency
+  /fx/latest:
+    get:
+      description: rates[Q] is how many Q one unit of `base` buys. `asOf` is null
+        and `rates` empty until the first provider refresh has completed.
+      parameters:
+      - description: Base currency (default USD)
+        in: query
+        name: base
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/currency.LatestResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Latest FX rates re-based to a currency
+      tags:
+      - currency
   /health:
     get:
       produces:
@@ -968,6 +1062,117 @@ paths:
       summary: Mark the space as my active space
       tags:
       - spaces
+  /spaces/{spaceId}/fx/manual-rates:
+    get:
+      description: Used instead of live rates when the space has autoFxConversion
+        off.
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/currency.ManualRateDTO'
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: List the space's manual FX rates
+      tags:
+      - currency
+  /spaces/{spaceId}/fx/manual-rates/{base}/{quote}:
+    delete:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Base currency
+        in: path
+        name: base
+        required: true
+        type: string
+      - description: Quote currency
+        in: path
+        name: quote
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Delete a manual FX rate (OWNER)
+      tags:
+      - currency
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Base currency
+        in: path
+        name: base
+        required: true
+        type: string
+      - description: Quote currency
+        in: path
+        name: quote
+        required: true
+        type: string
+      - description: Rate
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/currency.putManualRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/currency.ManualRateDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: 'Set a manual FX rate (OWNER): 1 base = rate quote'
+      tags:
+      - currency
   /spaces/{spaceId}/invitations:
     post:
       parameters:
