@@ -3,3 +3,43 @@
 //   sqlc v1.31.1
 
 package sqlc
+
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
+
+type PasswordResetToken struct {
+	ID        uuid.UUID  `json:"id"`
+	UserID    uuid.UUID  `json:"user_id"`
+	TokenHash string     `json:"token_hash"`
+	ExpiresAt time.Time  `json:"expires_at"`
+	UsedAt    *time.Time `json:"used_at"`
+	CreatedAt time.Time  `json:"created_at"`
+}
+
+type RefreshToken struct {
+	ID           uuid.UUID     `json:"id"`
+	UserID       uuid.UUID     `json:"user_id"`
+	FamilyID     uuid.UUID     `json:"family_id"`
+	TokenHash    string        `json:"token_hash"`
+	ExpiresAt    time.Time     `json:"expires_at"`
+	RevokedAt    *time.Time    `json:"revoked_at"`
+	ReplacedByID uuid.NullUUID `json:"replaced_by_id"`
+	UserAgent    *string       `json:"user_agent"`
+	Ip           *string       `json:"ip"`
+	CreatedAt    time.Time     `json:"created_at"`
+}
+
+type User struct {
+	ID                uuid.UUID     `json:"id"`
+	Email             string        `json:"email"`
+	PasswordHash      string        `json:"-"`
+	Name              string        `json:"name"`
+	Timezone          string        `json:"timezone"`
+	LastActiveSpaceID uuid.NullUUID `json:"last_active_space_id"`
+	CreatedAt         time.Time     `json:"created_at"`
+	UpdatedAt         time.Time     `json:"updated_at"`
+	DeletedAt         *time.Time    `json:"deleted_at"`
+}
