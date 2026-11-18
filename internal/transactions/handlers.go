@@ -70,6 +70,13 @@ type InvestmentRef struct {
 	Icon   string    `json:"icon"`
 }
 
+// ManualAssetRef is the asset a settlement belongs to.
+type ManualAssetRef struct {
+	ID   uuid.UUID `json:"id"`
+	Name string    `json:"name"`
+	Icon string    `json:"icon"`
+}
+
 // TransactionDTO is the public representation of a transaction.
 type TransactionDTO struct {
 	ID        uuid.UUID       `json:"id"`
@@ -89,13 +96,15 @@ type TransactionDTO struct {
 	UnitPrice        *decimal.Decimal `json:"unitPrice,omitempty" swaggertype:"string"`
 	Fee              *decimal.Decimal `json:"fee,omitempty" swaggertype:"string"`
 	RealizedPL       *decimal.Decimal `json:"realizedPl,omitempty" swaggertype:"string"`
-	ToAmount         *decimal.Decimal `json:"toAmount,omitempty" swaggertype:"string"`
-	ToCurrency       *string          `json:"toCurrency,omitempty"`
-	FxRate           *decimal.Decimal `json:"fxRate,omitempty" swaggertype:"string"`
-	OccurredAt       time.Time        `json:"occurredAt"`
-	CreatedByID      uuid.UUID        `json:"createdById"`
-	CreatedAt        time.Time        `json:"createdAt"`
-	UpdatedAt        time.Time        `json:"updatedAt"`
+	// Settlements of money owed / debt: the manual asset they belong to.
+	ManualAsset *ManualAssetRef  `json:"manualAsset,omitempty"`
+	ToAmount    *decimal.Decimal `json:"toAmount,omitempty" swaggertype:"string"`
+	ToCurrency  *string          `json:"toCurrency,omitempty"`
+	FxRate      *decimal.Decimal `json:"fxRate,omitempty" swaggertype:"string"`
+	OccurredAt  time.Time        `json:"occurredAt"`
+	CreatedByID uuid.UUID        `json:"createdById"`
+	CreatedAt   time.Time        `json:"createdAt"`
+	UpdatedAt   time.Time        `json:"updatedAt"`
 }
 
 func ref(id uuid.NullUUID, name, icon, color *string) *Ref {
@@ -131,6 +140,13 @@ func ToDTO(d Detail) TransactionDTO {
 	if d.FxRate.Valid {
 		v := d.FxRate.Decimal
 		t.FxRate = &v
+	}
+	if d.ManualAssetID.Valid && d.ManualAssetName != nil {
+		ic := ""
+		if d.ManualAssetIcon != nil {
+			ic = *d.ManualAssetIcon
+		}
+		t.ManualAsset = &ManualAssetRef{ID: d.ManualAssetID.UUID, Name: *d.ManualAssetName, Icon: ic}
 	}
 	if d.InvestmentID.Valid && d.InvestmentName != nil {
 		ic := ""
