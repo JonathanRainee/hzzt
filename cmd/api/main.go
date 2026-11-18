@@ -19,6 +19,7 @@ import (
 	"github.com/JonathanRainee/hzzt/internal/currency"
 	"github.com/JonathanRainee/hzzt/internal/db"
 	"github.com/JonathanRainee/hzzt/internal/db/sqlc"
+	"github.com/JonathanRainee/hzzt/internal/investments"
 	"github.com/JonathanRainee/hzzt/internal/platform/email"
 	"github.com/JonathanRainee/hzzt/internal/platform/events"
 	"github.com/JonathanRainee/hzzt/internal/server"
@@ -107,6 +108,7 @@ func run() error {
 	categoriesSvc.SetUsageChecker(transactionsSvc.CategoryInUse) // locks a category's type once used
 	transactionsHandler := transactions.NewHandler(transactionsSvc, authSvc, spacesSvc)
 	transfersHandler := transfers.NewHandler(transfers.NewService(pool, transactionsSvc, nil), authSvc, spacesSvc)
+	investmentsHandler := investments.NewHandler(investments.NewService(pool, currencySvc, nil), authSvc, spacesSvc)
 	stopJobs, err := currencySvc.StartJobs(ctx, log)
 	if err != nil {
 		return err
@@ -115,7 +117,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           server.NewRouter(cfg, log, sqlc.New(pool), authHandler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount, walletsHandler.Mount, transactionsHandler.Mount, transfersHandler.Mount),
+		Handler:           server.NewRouter(cfg, log, sqlc.New(pool), authHandler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount, walletsHandler.Mount, transactionsHandler.Mount, transfersHandler.Mount, investmentsHandler.Mount),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,

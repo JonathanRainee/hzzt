@@ -308,6 +308,294 @@ definitions:
       requestId:
         type: string
     type: object
+  investments.BaseValues:
+    properties:
+      costBasis:
+        type: string
+      currency:
+        example: IDR
+        type: string
+      fxRate:
+        description: 'FxRate is the rate used: base-currency units per 1 quote-currency
+          unit.'
+        example: "16000"
+        type: string
+      marketValue:
+        type: string
+      unrealizedPl:
+        type: string
+    type: object
+  investments.CreateRequestDoc:
+    properties:
+      assetType:
+        enum:
+        - CRYPTO
+        - ID_STOCK
+        - US_STOCK
+        - MUTUAL_FUND
+        - GLOBAL_ETF
+        type: string
+      avgBuyPrice:
+        example: "9200"
+        type: string
+      details:
+        type: object
+      estimatedAnnualChangePct:
+        example: "5.5"
+        type: string
+      fees:
+        type: string
+      icon:
+        type: string
+      manualCurrentValue:
+        type: string
+      manualFxRate:
+        example: "16000"
+        type: string
+      manualPrice:
+        example: "9500"
+        type: string
+      name:
+        example: Bank Central Asia
+        type: string
+      priceMode:
+        type: string
+      purchaseDate:
+        example: "2026-01-31"
+        type: string
+      quantity:
+        example: "0.5"
+        type: string
+      quoteCurrency:
+        type: string
+      symbol:
+        type: string
+    type: object
+  investments.FieldMeta:
+    properties:
+      kind:
+        enum:
+        - TEXT
+        - INTEGER
+        - DECIMAL
+        - DATE
+        - ENUM
+        type: string
+      label:
+        example: Staked quantity
+        type: string
+      name:
+        example: stakedQuantity
+        type: string
+      options:
+        items:
+          type: string
+        type: array
+      required:
+        type: boolean
+    type: object
+  investments.InvestmentDTO:
+    properties:
+      assetType:
+        enum:
+        - CRYPTO
+        - ID_STOCK
+        - US_STOCK
+        - MUTUAL_FUND
+        - GLOBAL_ETF
+        type: string
+      avgBuyPrice:
+        type: string
+      createdAt:
+        type: string
+      details:
+        type: object
+      estimatedAnnualChangePct:
+        type: string
+      fees:
+        type: string
+      icon:
+        type: string
+      id:
+        type: string
+      instrumentId:
+        type: string
+      isShared:
+        type: boolean
+      manualCurrentValue:
+        type: string
+      manualFxRate:
+        type: string
+      manualPrice:
+        type: string
+      name:
+        type: string
+      priceMode:
+        enum:
+        - AUTO
+        - MANUAL
+        type: string
+      purchaseDate:
+        example: "2026-01-31"
+        type: string
+      quantity:
+        example: "200"
+        type: string
+      quoteCurrency:
+        example: IDR
+        type: string
+      symbol:
+        type: string
+      updatedAt:
+        type: string
+      valuation:
+        $ref: '#/definitions/investments.Valuation'
+    type: object
+  investments.ListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/investments.InvestmentDTO'
+        type: array
+      summary:
+        $ref: '#/definitions/investments.Summary'
+    type: object
+  investments.PatchInput:
+    properties:
+      assetType:
+        type: string
+      avgBuyPrice:
+        type: string
+      details:
+        type: object
+      estimatedAnnualChangePct:
+        type: string
+      fees:
+        type: string
+      icon:
+        maxLength: 64
+        type: string
+      manualCurrentValue:
+        type: string
+      manualFxRate:
+        type: string
+      manualPrice:
+        type: string
+      name:
+        maxLength: 120
+        minLength: 1
+        type: string
+      priceMode:
+        enum:
+        - AUTO
+        - MANUAL
+        type: string
+      purchaseDate:
+        type: string
+      quantity:
+        type: string
+      quoteCurrency:
+        maxLength: 8
+        type: string
+      symbol:
+        type: string
+    type: object
+  investments.Summary:
+    properties:
+      currency:
+        example: IDR
+        type: string
+      totalCost:
+        type: string
+      totalValue:
+        type: string
+      unrealizedPl:
+        type: string
+      unrealizedPlPct:
+        description: UnrealizedPLPct is a percentage; null when the total cost is
+          0.
+        type: string
+      warnings:
+        items:
+          $ref: '#/definitions/currency.Warning'
+        type: array
+    type: object
+  investments.TypeDefaults:
+    properties:
+      estimatedAnnualChangePct:
+        type: string
+      fees:
+        type: string
+      priceMode:
+        type: string
+    type: object
+  investments.TypeMeta:
+    properties:
+      assetType:
+        type: string
+      defaultIcon:
+        type: string
+      defaults:
+        $ref: '#/definitions/investments.TypeDefaults'
+      detailFields:
+        description: DetailFields are the fields of the `details` object.
+        items:
+          $ref: '#/definitions/investments.FieldMeta'
+        type: array
+      label:
+        type: string
+      lotSize:
+        type: integer
+      quantityMode:
+        enum:
+        - QUANTITY
+        - LOTS
+        type: string
+      quoteCurrency:
+        description: 'null: chosen by the client (default: the space base currency)'
+        type: string
+      quoteCurrencyEditable:
+        type: boolean
+      supportsAutoPrice:
+        type: boolean
+      symbolRequired:
+        type: boolean
+    type: object
+  investments.Valuation:
+    properties:
+      base:
+        allOf:
+        - $ref: '#/definitions/investments.BaseValues'
+        description: Base holds the converted figures; null when no FX rate is available
+          (see Warnings).
+      costBasis:
+        type: string
+      isStale:
+        type: boolean
+      marketValue:
+        description: Native figures, in the investment's quote currency.
+        type: string
+      price:
+        type: string
+      priceAsOf:
+        type: string
+      priceSource:
+        enum:
+        - MARKET
+        - MANUAL
+        - MANUAL_VALUE
+        type: string
+      unrealizedPl:
+        type: string
+      unrealizedPlPct:
+        description: UnrealizedPLPct is a percentage (12.5 means +12.5%); null when
+          the cost basis is 0.
+        type: string
+      warnings:
+        items:
+          $ref: '#/definitions/currency.Warning'
+        type: array
+    type: object
   server.StatusResponse:
     properties:
       status:
@@ -1152,6 +1440,25 @@ paths:
       summary: Readiness check (database)
       tags:
       - health
+  /investment-types:
+    get:
+      description: 'Per asset type: the fixed or free quote currency, whether automatic
+        pricing is supported, how quantity is expressed (ID_STOCK uses lots; quantity
+        = lots × 100) and the fields of `details`.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/investments.TypeMeta'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: Investment type metadata for dynamic forms
+      tags:
+      - investments
   /invitations/{code}/accept:
     post:
       parameters:
@@ -1909,6 +2216,185 @@ paths:
       summary: 'Set a manual FX rate (OWNER): 1 base = rate quote'
       tags:
       - currency
+  /spaces/{spaceId}/investments:
+    get:
+      description: '`summary` totals the base-currency values. Investments without
+        a usable FX rate are left out of the totals and reported in `summary.warnings`.
+        `unrealizedPlPct` is a percentage (12.5 = +12.5%).'
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: CRYPTO, ID_STOCK, US_STOCK, MUTUAL_FUND or GLOBAL_ETF
+        in: query
+        name: assetType
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/investments.ListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: List investments with valuations and a portfolio summary
+      tags:
+      - investments
+    post:
+      consumes:
+      - application/json
+      description: 'The body is validated by `assetType` (see GET /investment-types).
+        ID_STOCK takes `details.lots` and derives quantity = lots × 100. CRYPTO checks
+        `details.stakedQuantity` <= quantity. `priceMode: AUTO` is accepted for CRYPTO,
+        US_STOCK and GLOBAL_ETF (falling back to the manual price until market data
+        is connected) and answers 422 AUTO_PRICE_NOT_SUPPORTED otherwise.'
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Investment
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/investments.CreateRequestDoc'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/investments.InvestmentDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "422":
+          description: AUTO_PRICE_NOT_SUPPORTED
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Create an investment
+      tags:
+      - investments
+  /spaces/{spaceId}/investments/{id}:
+    delete:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Investment ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Delete an investment (soft delete)
+      tags:
+      - investments
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Investment ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/investments.InvestmentDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Get an investment with its valuation
+      tags:
+      - investments
+    patch:
+      consumes:
+      - application/json
+      description: '`assetType` is immutable (it may be sent only if unchanged). `details`,
+        when sent, replaces the whole details object. `symbol`, `manualCurrentValue`,
+        `purchaseDate` and `manualFxRate` accept null to clear.'
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Investment ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to change
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/investments.PatchInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/investments.InvestmentDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "422":
+          description: AUTO_PRICE_NOT_SUPPORTED
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Update an investment
+      tags:
+      - investments
   /spaces/{spaceId}/invitations:
     post:
       parameters:
