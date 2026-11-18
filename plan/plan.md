@@ -282,7 +282,7 @@ Full field lists are defined in each phase. This is the map.
 | P10 | Investments core (manual pricing) | P5 | M3 Investments | Done |
 | P11 | Crypto auto pricing (CoinMarketCap) | P10 | M3 | Done |
 | P12 | US stock / ETF auto pricing (Massive) | P11 | M3 | Done |
-| P13 | Investment buy/sell through wallets | P9, P10 | M3 | Backlog |
+| P13 | Investment buy/sell through wallets | P9, P10 | M3 | Done |
 | P14 | Shared investments | P10, P13 | M3 | Backlog |
 | P15 | Other assets & net-worth summary | P9, P14 | M4 Net worth & planning | Backlog |
 | P16 | Goals | P7 | M4 | Backlog |
