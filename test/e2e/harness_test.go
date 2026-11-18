@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,6 +30,8 @@ import (
 	"github.com/JonathanRainee/hzzt/internal/platform/events"
 	"github.com/JonathanRainee/hzzt/internal/platform/httpx"
 	"github.com/JonathanRainee/hzzt/internal/server"
+	"github.com/JonathanRainee/hzzt/internal/spaces"
+	"github.com/JonathanRainee/hzzt/internal/users"
 )
 
 var testPool *pgxpool.Pool
@@ -67,6 +70,7 @@ type TestServer struct {
 	Email  *email.Memory
 	Events *events.Bus
 	Auth   *auth.Service
+	Clock  *testClock
 	t      *testing.T
 }
 
@@ -108,6 +112,7 @@ func NewTestServerWithLimits(t *testing.T, limits auth.Limits) *TestServer {
 		CORSOrigins: []string{"http://localhost:3000"},
 	}
 	log := zerolog.Nop()
+	clock := &testClock{}
 	mail := &email.Memory{}
 	bus := events.NewBus(log)
 	svc := auth.NewService(tx, auth.Options{
@@ -120,10 +125,14 @@ func NewTestServerWithLimits(t *testing.T, limits auth.Limits) *TestServer {
 		Log:          log,
 	})
 	handler := auth.NewHandler(svc, limits, false)
-	srv := httptest.NewServer(server.NewRouter(cfg, log, sqlc.New(tx), handler.Mount))
+	spacesSvc := spaces.NewService(tx, spaces.Options{AppURL: "http://localhost:3000", Events: bus, Log: log, Now: clock.Now})
+	spacesSvc.Subscribe(bus)
+	spacesHandler := spaces.NewHandler(spacesSvc, svc)
+	usersHandler := users.NewHandler(users.NewService(tx), svc)
+	srv := httptest.NewServer(server.NewRouter(cfg, log, sqlc.New(tx), handler.Mount, usersHandler.Mount, spacesHandler.Mount))
 	t.Cleanup(srv.Close)
 
-	return &TestServer{Server: srv, Tx: tx, Email: mail, Events: bus, Auth: svc, t: t}
+	return &TestServer{Server: srv, Tx: tx, Email: mail, Events: bus, Auth: svc, Clock: clock, t: t}
 }
 
 // Response is a fully read HTTP response.
@@ -178,4 +187,23 @@ func (s *TestServer) Do(method, path string, body any, headers ...[2]string) Res
 func (s *TestServer) Get(path string, headers ...[2]string) Response {
 	s.t.Helper()
 	return s.Do(http.MethodGet, path, nil, headers...)
+}
+
+// testClock lets a test move "now" forward (e.g. to expire invitations).
+type testClock struct {
+	mu     sync.Mutex
+	offset time.Duration
+}
+
+func (c *testClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return time.Now().Add(c.offset)
+}
+
+// Advance moves the clock forward.
+func (c *testClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.offset += d
 }
