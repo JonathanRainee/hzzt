@@ -94,6 +94,17 @@ func NewTestServer(t *testing.T) *TestServer {
 // NewTestServerWithLimits is NewTestServer with explicit auth rate limits.
 func NewTestServerWithLimits(t *testing.T, limits auth.Limits) *TestServer {
 	t.Helper()
+	return newTestServer(t, limits, users.Limits{VerifyPIN: httpx.NewRateLimiter(1000, time.Minute)})
+}
+
+// NewTestServerWithUserLimits is NewTestServer with explicit /me rate limits.
+func NewTestServerWithUserLimits(t *testing.T, limits users.Limits) *TestServer {
+	t.Helper()
+	return newTestServer(t, generousLimits(), limits)
+}
+
+func newTestServer(t *testing.T, limits auth.Limits, userLimits users.Limits) *TestServer {
+	t.Helper()
 	ctx := context.Background()
 
 	tx, err := testPool.Begin(ctx)
@@ -128,7 +139,9 @@ func NewTestServerWithLimits(t *testing.T, limits auth.Limits) *TestServer {
 	spacesSvc := spaces.NewService(tx, spaces.Options{AppURL: "http://localhost:3000", Events: bus, Log: log, Now: clock.Now})
 	spacesSvc.Subscribe(bus)
 	spacesHandler := spaces.NewHandler(spacesSvc, svc)
-	usersHandler := users.NewHandler(users.NewService(tx), svc)
+	usersSvc := users.NewService(tx, users.Options{Now: clock.Now})
+	usersSvc.Subscribe(bus)
+	usersHandler := users.NewHandler(usersSvc, svc, userLimits)
 	srv := httptest.NewServer(server.NewRouter(cfg, log, sqlc.New(tx), handler.Mount, usersHandler.Mount, spacesHandler.Mount))
 	t.Cleanup(srv.Close)
 
