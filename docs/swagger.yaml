@@ -122,6 +122,111 @@ definitions:
         example: ok
         type: string
     type: object
+  spaces.ActiveInvitationResponse:
+    properties:
+      invitation:
+        $ref: '#/definitions/spaces.InvitationDTO'
+    type: object
+  spaces.InvitationDTO:
+    properties:
+      code:
+        type: string
+      expiresAt:
+        type: string
+      link:
+        type: string
+    type: object
+  spaces.MemberDTO:
+    properties:
+      email:
+        type: string
+      joinedAt:
+        type: string
+      name:
+        type: string
+      role:
+        type: string
+      userId:
+        type: string
+    type: object
+  spaces.SpaceDTO:
+    properties:
+      autoFxConversion:
+        type: boolean
+      avatarColor:
+        type: string
+      avatarEmoji:
+        type: string
+      baseCurrency:
+        type: string
+      budgetPeriodStartDay:
+        type: integer
+      createdAt:
+        type: string
+      id:
+        type: string
+      memberCount:
+        type: integer
+      name:
+        type: string
+      role:
+        type: string
+      trackingMode:
+        type: string
+    type: object
+  spaces.createRequest:
+    properties:
+      avatarColor:
+        type: string
+      avatarEmoji:
+        type: string
+      baseCurrency:
+        type: string
+      name:
+        maxLength: 40
+        minLength: 1
+        type: string
+    required:
+    - name
+    type: object
+  spaces.updateRequest:
+    properties:
+      autoFxConversion:
+        type: boolean
+      avatarColor:
+        type: string
+      avatarEmoji:
+        type: string
+      baseCurrency:
+        type: string
+      name:
+        maxLength: 40
+        minLength: 1
+        type: string
+      trackingMode:
+        enum:
+        - FULL_NET_WORTH
+        - CASH_ONLY
+        type: string
+    type: object
+  users.deleteRequest:
+    properties:
+      password:
+        maxLength: 128
+        type: string
+    required:
+    - password
+    type: object
+  users.patchRequest:
+    properties:
+      name:
+        maxLength: 60
+        minLength: 1
+        type: string
+      timezone:
+        maxLength: 64
+        type: string
+    type: object
 info:
   contact: {}
   description: Asset management backend API.
@@ -362,6 +467,410 @@ paths:
       summary: Readiness check (database)
       tags:
       - health
+  /invitations/{code}/accept:
+    post:
+      parameters:
+      - description: Invitation code
+        in: path
+        name: code
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/spaces.SpaceDTO'
+        "409":
+          description: ALREADY_A_MEMBER
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "422":
+          description: INVITATION_INVALID / INVITATION_EXPIRED / SPACE_MEMBER_LIMIT
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Join a space with an invitation code (as MEMBER)
+      tags:
+      - spaces
+  /me:
+    delete:
+      consumes:
+      - application/json
+      description: Blocked with OWNERSHIP_TRANSFER_REQUIRED while I own a space that
+        has other members.
+      parameters:
+      - description: Password confirmation
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/users.deleteRequest'
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "422":
+          description: OWNERSHIP_TRANSFER_REQUIRED / INVALID_CURRENT_PASSWORD
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Delete my account
+      tags:
+      - me
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/auth.UserDTO'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Get my profile (includes lastActiveSpaceId)
+      tags:
+      - me
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Fields to change
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/users.patchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/auth.UserDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Update my name and/or timezone
+      tags:
+      - me
+  /spaces:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/spaces.SpaceDTO'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: List my spaces
+      tags:
+      - spaces
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/spaces.createRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/spaces.SpaceDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Create a space (caller becomes OWNER)
+      tags:
+      - spaces
+  /spaces/{spaceId}:
+    delete:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "422":
+          description: LAST_SPACE
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Delete a space (OWNER, soft delete)
+      tags:
+      - spaces
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/spaces.SpaceDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Get a space
+      tags:
+      - spaces
+    patch:
+      consumes:
+      - application/json
+      description: Changing baseCurrency never rewrites stored amounts; conversion
+        happens at read time.
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Fields to change
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/spaces.updateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/spaces.SpaceDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Update a space (OWNER)
+      tags:
+      - spaces
+  /spaces/{spaceId}/activate:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Mark the space as my active space
+      tags:
+      - spaces
+  /spaces/{spaceId}/invitations:
+    post:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/spaces.InvitationDTO'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Create an invitation code (OWNER); revokes the previous one
+      tags:
+      - spaces
+  /spaces/{spaceId}/invitations/active:
+    delete:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Revoke the active invitation (OWNER)
+      tags:
+      - spaces
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/spaces.ActiveInvitationResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Get the active invitation (OWNER); invitation is null if none
+      tags:
+      - spaces
+  /spaces/{spaceId}/members:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/spaces.MemberDTO'
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: List space members
+      tags:
+      - spaces
+  /spaces/{spaceId}/members/{userId}:
+    delete:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: User ID
+        in: path
+        name: userId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "422":
+          description: OWNER_CANNOT_LEAVE
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Remove a member (OWNER) or leave the space (self)
+      tags:
+      - spaces
 schemes:
 - http
 - https
