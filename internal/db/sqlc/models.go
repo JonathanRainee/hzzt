@@ -32,6 +32,38 @@ type RefreshToken struct {
 	CreatedAt    time.Time     `json:"created_at"`
 }
 
+type Space struct {
+	ID                   uuid.UUID  `json:"id"`
+	Name                 string     `json:"name"`
+	AvatarEmoji          *string    `json:"avatar_emoji"`
+	AvatarColor          string     `json:"avatar_color"`
+	BaseCurrency         string     `json:"base_currency"`
+	AutoFxConversion     bool       `json:"auto_fx_conversion"`
+	TrackingMode         string     `json:"tracking_mode"`
+	BudgetPeriodStartDay int16      `json:"budget_period_start_day"`
+	CreatedByID          uuid.UUID  `json:"created_by_id"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+	DeletedAt            *time.Time `json:"deleted_at"`
+}
+
+type SpaceInvitation struct {
+	ID          uuid.UUID  `json:"id"`
+	SpaceID     uuid.UUID  `json:"space_id"`
+	Code        string     `json:"code"`
+	CreatedByID uuid.UUID  `json:"created_by_id"`
+	ExpiresAt   time.Time  `json:"expires_at"`
+	RevokedAt   *time.Time `json:"revoked_at"`
+	CreatedAt   time.Time  `json:"created_at"`
+}
+
+type SpaceMember struct {
+	SpaceID  uuid.UUID `json:"space_id"`
+	UserID   uuid.UUID `json:"user_id"`
+	Role     string    `json:"role"`
+	JoinedAt time.Time `json:"joined_at"`
+}
+
 type User struct {
 	ID                uuid.UUID     `json:"id"`
 	Email             string        `json:"email"`

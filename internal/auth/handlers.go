@@ -188,7 +188,8 @@ func (h *Handler) respondSession(w http.ResponseWriter, status int, s *Session) 
 	writeJSON(w, status, AuthResponse{AccessToken: s.AccessToken, ExpiresIn: s.ExpiresIn, User: ToUserDTO(s.User)})
 }
 
-func normalizeTimezone(tz string) (string, error) {
+// NormalizeTimezone validates an IANA timezone (empty → UTC).
+func NormalizeTimezone(tz string) (string, error) {
 	tz = strings.TrimSpace(tz)
 	if tz == "" {
 		return "UTC", nil
@@ -226,7 +227,7 @@ func (h *Handler) register(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, err)
 		return
 	}
-	tz, err := normalizeTimezone(req.Timezone)
+	tz, err := NormalizeTimezone(req.Timezone)
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return

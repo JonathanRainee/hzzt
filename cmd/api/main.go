@@ -20,6 +20,8 @@ import (
 	"github.com/JonathanRainee/hzzt/internal/platform/email"
 	"github.com/JonathanRainee/hzzt/internal/platform/events"
 	"github.com/JonathanRainee/hzzt/internal/server"
+	"github.com/JonathanRainee/hzzt/internal/spaces"
+	"github.com/JonathanRainee/hzzt/internal/users"
 )
 
 // @title			Hzzt API
@@ -78,9 +80,14 @@ func run() error {
 	})
 	authHandler := auth.NewHandler(authSvc, auth.DefaultLimits(), cfg.IsProduction())
 
+	spacesSvc := spaces.NewService(pool, spaces.Options{AppURL: cfg.AppURL, Events: bus, Log: log})
+	spacesSvc.Subscribe(bus) // user.registered → default space
+	spacesHandler := spaces.NewHandler(spacesSvc, authSvc)
+	usersHandler := users.NewHandler(users.NewService(pool), authSvc)
+
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           server.NewRouter(cfg, log, sqlc.New(pool), authHandler.Mount),
+		Handler:           server.NewRouter(cfg, log, sqlc.New(pool), authHandler.Mount, usersHandler.Mount, spacesHandler.Mount),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,
