@@ -546,6 +546,272 @@
                 }
             }
         },
+        "/me/app-lock": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The app lock is a client-side UX gate that syncs across devices, NOT a security boundary: API access is governed by the JWT alone.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "me"
+                ],
+                "summary": "Enable the app lock",
+                "parameters": [
+                    {
+                        "description": "PIN (4 to 6 digits) and account password",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/users.enableAppLockRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "409": {
+                        "description": "APP_LOCK_ALREADY_ENABLED",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "422": {
+                        "description": "INVALID_CURRENT_PASSWORD",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "me"
+                ],
+                "summary": "Disable the app lock (requires the account password)",
+                "parameters": [
+                    {
+                        "description": "Password",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/users.disableAppLockRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "422": {
+                        "description": "INVALID_CURRENT_PASSWORD / APP_LOCK_NOT_ENABLED",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/me/app-lock/pin": {
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "me"
+                ],
+                "summary": "Change the app-lock PIN (a wrong current PIN counts toward the lockout)",
+                "parameters": [
+                    {
+                        "description": "Current and new PIN",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/users.changePINRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "422": {
+                        "description": "INVALID_PIN / APP_LOCK_NOT_ENABLED",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "429": {
+                        "description": "APP_LOCK_TEMPORARILY_LOCKED",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/me/app-lock/verify": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "5 consecutive wrong PINs lock verification for 5 minutes (429 APP_LOCK_TEMPORARILY_LOCKED with details.retryAfter in seconds). Rate limited to 10/min per user. Client-side UX gate only.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "me"
+                ],
+                "summary": "Verify the app-lock PIN",
+                "parameters": [
+                    {
+                        "description": "PIN",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/users.verifyAppLockRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/users.VerifyResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "APP_LOCK_NOT_ENABLED",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "429": {
+                        "description": "APP_LOCK_TEMPORARILY_LOCKED / RATE_LIMITED",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/me/preferences": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "me"
+                ],
+                "summary": "Get my preferences (defaults are created on registration)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/users.PreferencesDTO"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "me"
+                ],
+                "summary": "Update my preferences",
+                "parameters": [
+                    {
+                        "description": "Fields to change",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/users.patchPreferencesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/users.PreferencesDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/spaces": {
             "get": {
                 "security": [
@@ -1334,6 +1600,49 @@
                 }
             }
         },
+        "users.PreferencesDTO": {
+            "type": "object",
+            "properties": {
+                "appLockEnabled": {
+                    "type": "boolean"
+                },
+                "hideAmounts": {
+                    "type": "boolean"
+                },
+                "keyboardType": {
+                    "type": "string",
+                    "enum": [
+                        "MINI_CALCULATOR",
+                        "STANDARD_NUMERIC"
+                    ]
+                }
+            }
+        },
+        "users.VerifyResponse": {
+            "type": "object",
+            "properties": {
+                "valid": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "users.changePINRequest": {
+            "type": "object",
+            "required": [
+                "currentPin",
+                "newPin"
+            ],
+            "properties": {
+                "currentPin": {
+                    "type": "string",
+                    "maxLength": 16
+                },
+                "newPin": {
+                    "type": "string",
+                    "maxLength": 16
+                }
+            }
+        },
         "users.deleteRequest": {
             "type": "object",
             "required": [
@@ -1343,6 +1652,50 @@
                 "password": {
                     "type": "string",
                     "maxLength": 128
+                }
+            }
+        },
+        "users.disableAppLockRequest": {
+            "type": "object",
+            "required": [
+                "password"
+            ],
+            "properties": {
+                "password": {
+                    "type": "string",
+                    "maxLength": 128
+                }
+            }
+        },
+        "users.enableAppLockRequest": {
+            "type": "object",
+            "required": [
+                "password",
+                "pin"
+            ],
+            "properties": {
+                "password": {
+                    "type": "string",
+                    "maxLength": 128
+                },
+                "pin": {
+                    "type": "string",
+                    "maxLength": 16
+                }
+            }
+        },
+        "users.patchPreferencesRequest": {
+            "type": "object",
+            "properties": {
+                "hideAmounts": {
+                    "type": "boolean"
+                },
+                "keyboardType": {
+                    "type": "string",
+                    "enum": [
+                        "MINI_CALCULATOR",
+                        "STANDARD_NUMERIC"
+                    ]
                 }
             }
         },
@@ -1357,6 +1710,18 @@
                 "timezone": {
                     "type": "string",
                     "maxLength": 64
+                }
+            }
+        },
+        "users.verifyAppLockRequest": {
+            "type": "object",
+            "required": [
+                "pin"
+            ],
+            "properties": {
+                "pin": {
+                    "type": "string",
+                    "maxLength": 16
                 }
             }
         }

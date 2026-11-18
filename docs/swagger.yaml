@@ -209,6 +209,35 @@ definitions:
         - CASH_ONLY
         type: string
     type: object
+  users.PreferencesDTO:
+    properties:
+      appLockEnabled:
+        type: boolean
+      hideAmounts:
+        type: boolean
+      keyboardType:
+        enum:
+        - MINI_CALCULATOR
+        - STANDARD_NUMERIC
+        type: string
+    type: object
+  users.VerifyResponse:
+    properties:
+      valid:
+        type: boolean
+    type: object
+  users.changePINRequest:
+    properties:
+      currentPin:
+        maxLength: 16
+        type: string
+      newPin:
+        maxLength: 16
+        type: string
+    required:
+    - currentPin
+    - newPin
+    type: object
   users.deleteRequest:
     properties:
       password:
@@ -216,6 +245,36 @@ definitions:
         type: string
     required:
     - password
+    type: object
+  users.disableAppLockRequest:
+    properties:
+      password:
+        maxLength: 128
+        type: string
+    required:
+    - password
+    type: object
+  users.enableAppLockRequest:
+    properties:
+      password:
+        maxLength: 128
+        type: string
+      pin:
+        maxLength: 16
+        type: string
+    required:
+    - password
+    - pin
+    type: object
+  users.patchPreferencesRequest:
+    properties:
+      hideAmounts:
+        type: boolean
+      keyboardType:
+        enum:
+        - MINI_CALCULATOR
+        - STANDARD_NUMERIC
+        type: string
     type: object
   users.patchRequest:
     properties:
@@ -226,6 +285,14 @@ definitions:
       timezone:
         maxLength: 64
         type: string
+    type: object
+  users.verifyAppLockRequest:
+    properties:
+      pin:
+        maxLength: 16
+        type: string
+    required:
+    - pin
     type: object
 info:
   contact: {}
@@ -569,6 +636,174 @@ paths:
       security:
       - BearerAuth: []
       summary: Update my name and/or timezone
+      tags:
+      - me
+  /me/app-lock:
+    delete:
+      consumes:
+      - application/json
+      parameters:
+      - description: Password
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/users.disableAppLockRequest'
+      responses:
+        "204":
+          description: No Content
+        "422":
+          description: INVALID_CURRENT_PASSWORD / APP_LOCK_NOT_ENABLED
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Disable the app lock (requires the account password)
+      tags:
+      - me
+    post:
+      consumes:
+      - application/json
+      description: 'The app lock is a client-side UX gate that syncs across devices,
+        NOT a security boundary: API access is governed by the JWT alone.'
+      parameters:
+      - description: PIN (4 to 6 digits) and account password
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/users.enableAppLockRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "409":
+          description: APP_LOCK_ALREADY_ENABLED
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "422":
+          description: INVALID_CURRENT_PASSWORD
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Enable the app lock
+      tags:
+      - me
+  /me/app-lock/pin:
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Current and new PIN
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/users.changePINRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "422":
+          description: INVALID_PIN / APP_LOCK_NOT_ENABLED
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "429":
+          description: APP_LOCK_TEMPORARILY_LOCKED
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Change the app-lock PIN (a wrong current PIN counts toward the lockout)
+      tags:
+      - me
+  /me/app-lock/verify:
+    post:
+      consumes:
+      - application/json
+      description: 5 consecutive wrong PINs lock verification for 5 minutes (429 APP_LOCK_TEMPORARILY_LOCKED
+        with details.retryAfter in seconds). Rate limited to 10/min per user. Client-side
+        UX gate only.
+      parameters:
+      - description: PIN
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/users.verifyAppLockRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/users.VerifyResponse'
+        "422":
+          description: APP_LOCK_NOT_ENABLED
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "429":
+          description: APP_LOCK_TEMPORARILY_LOCKED / RATE_LIMITED
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Verify the app-lock PIN
+      tags:
+      - me
+  /me/preferences:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/users.PreferencesDTO'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Get my preferences (defaults are created on registration)
+      tags:
+      - me
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Fields to change
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/users.patchPreferencesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/users.PreferencesDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Update my preferences
       tags:
       - me
   /spaces:

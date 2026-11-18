@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -28,14 +29,27 @@ type DB interface {
 	db.TxStarter
 }
 
-// Service holds profile logic.
+// Options configures the service.
+type Options struct {
+	// Now is overridable in tests; defaults to time.Now.
+	Now func() time.Time
+}
+
+// Service holds profile, preferences and app-lock logic.
 type Service struct {
-	db DB
-	q  *sqlc.Queries
+	db  DB
+	q   *sqlc.Queries
+	now func() time.Time
 }
 
 // NewService builds the service.
-func NewService(database DB) *Service { return &Service{db: database, q: sqlc.New(database)} }
+func NewService(database DB, o Options) *Service {
+	now := o.Now
+	if now == nil {
+		now = time.Now
+	}
+	return &Service{db: database, q: sqlc.New(database), now: now}
+}
 
 // UpdateProfile applies a partial update of name and/or timezone.
 func (s *Service) UpdateProfile(ctx context.Context, id uuid.UUID, name, tz *string) (sqlc.User, error) {
@@ -75,15 +89,26 @@ func (s *Service) Delete(ctx context.Context, user sqlc.User, password string) e
 	})
 }
 
+// Limits are the per-endpoint rate limiters.
+type Limits struct {
+	VerifyPIN *httpx.RateLimiter // per user
+}
+
+// DefaultLimits: PIN verification 10/min per user.
+func DefaultLimits() Limits {
+	return Limits{VerifyPIN: httpx.NewRateLimiter(10, time.Minute)}
+}
+
 // Handler exposes /me.
 type Handler struct {
-	svc  *Service
-	auth *auth.Service
+	svc    *Service
+	auth   *auth.Service
+	limits Limits
 }
 
 // NewHandler creates the HTTP layer.
-func NewHandler(svc *Service, authSvc *auth.Service) *Handler {
-	return &Handler{svc: svc, auth: authSvc}
+func NewHandler(svc *Service, authSvc *auth.Service, limits Limits) *Handler {
+	return &Handler{svc: svc, auth: authSvc, limits: limits}
 }
 
 // Mount registers /me on r (the /api/v1 router).
@@ -93,6 +118,13 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Get("/", h.get)
 		r.Patch("/", h.patch)
 		r.Delete("/", h.delete)
+
+		r.Get("/preferences", h.getPreferences)
+		r.Patch("/preferences", h.patchPreferences)
+		r.Post("/app-lock", h.enableAppLock)
+		r.Post("/app-lock/verify", h.verifyAppLock)
+		r.Patch("/app-lock/pin", h.changeAppLockPin)
+		r.Delete("/app-lock", h.disableAppLock)
 	})
 }
 
