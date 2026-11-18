@@ -497,6 +497,34 @@ const docTemplate = `{
                 }
             }
         },
+        "/investment-types": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Per asset type: the fixed or free quote currency, whether automatic pricing is supported, how quantity is expressed (ID_STOCK uses lots; quantity = lots × 100) and the fields of ` + "`" + `details` + "`" + `.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "investments"
+                ],
+                "summary": "Investment type metadata for dynamic forms",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/investments.TypeMeta"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/invitations/{code}/accept": {
             "post": {
                 "security": [
@@ -1673,6 +1701,273 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/spaces/{spaceId}/investments": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "` + "`" + `summary` + "`" + ` totals the base-currency values. Investments without a usable FX rate are left out of the totals and reported in ` + "`" + `summary.warnings` + "`" + `. ` + "`" + `unrealizedPlPct` + "`" + ` is a percentage (12.5 = +12.5%).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "investments"
+                ],
+                "summary": "List investments with valuations and a portfolio summary",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "CRYPTO, ID_STOCK, US_STOCK, MUTUAL_FUND or GLOBAL_ETF",
+                        "name": "assetType",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/investments.ListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The body is validated by ` + "`" + `assetType` + "`" + ` (see GET /investment-types). ID_STOCK takes ` + "`" + `details.lots` + "`" + ` and derives quantity = lots × 100. CRYPTO checks ` + "`" + `details.stakedQuantity` + "`" + ` \u003c= quantity. ` + "`" + `priceMode: AUTO` + "`" + ` is accepted for CRYPTO, US_STOCK and GLOBAL_ETF (falling back to the manual price until market data is connected) and answers 422 AUTO_PRICE_NOT_SUPPORTED otherwise.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "investments"
+                ],
+                "summary": "Create an investment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Investment",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/investments.CreateRequestDoc"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/investments.InvestmentDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "422": {
+                        "description": "AUTO_PRICE_NOT_SUPPORTED",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/spaces/{spaceId}/investments/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "investments"
+                ],
+                "summary": "Get an investment with its valuation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Investment ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/investments.InvestmentDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "investments"
+                ],
+                "summary": "Delete an investment (soft delete)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Investment ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "` + "`" + `assetType` + "`" + ` is immutable (it may be sent only if unchanged). ` + "`" + `details` + "`" + `, when sent, replaces the whole details object. ` + "`" + `symbol` + "`" + `, ` + "`" + `manualCurrentValue` + "`" + `, ` + "`" + `purchaseDate` + "`" + ` and ` + "`" + `manualFxRate` + "`" + ` accept null to clear.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "investments"
+                ],
+                "summary": "Update an investment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Investment ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Fields to change",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/investments.PatchInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/investments.InvestmentDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "422": {
+                        "description": "AUTO_PRICE_NOT_SUPPORTED",
                         "schema": {
                             "$ref": "#/definitions/httpx.ErrorEnvelope"
                         }
@@ -3444,6 +3739,418 @@ const docTemplate = `{
                 },
                 "requestId": {
                     "type": "string"
+                }
+            }
+        },
+        "investments.BaseValues": {
+            "type": "object",
+            "properties": {
+                "costBasis": {
+                    "type": "string"
+                },
+                "currency": {
+                    "type": "string",
+                    "example": "IDR"
+                },
+                "fxRate": {
+                    "description": "FxRate is the rate used: base-currency units per 1 quote-currency unit.",
+                    "type": "string",
+                    "example": "16000"
+                },
+                "marketValue": {
+                    "type": "string"
+                },
+                "unrealizedPl": {
+                    "type": "string"
+                }
+            }
+        },
+        "investments.CreateRequestDoc": {
+            "type": "object",
+            "properties": {
+                "assetType": {
+                    "type": "string",
+                    "enum": [
+                        "CRYPTO",
+                        "ID_STOCK",
+                        "US_STOCK",
+                        "MUTUAL_FUND",
+                        "GLOBAL_ETF"
+                    ]
+                },
+                "avgBuyPrice": {
+                    "type": "string",
+                    "example": "9200"
+                },
+                "details": {
+                    "type": "object"
+                },
+                "estimatedAnnualChangePct": {
+                    "type": "string",
+                    "example": "5.5"
+                },
+                "fees": {
+                    "type": "string"
+                },
+                "icon": {
+                    "type": "string"
+                },
+                "manualCurrentValue": {
+                    "type": "string"
+                },
+                "manualFxRate": {
+                    "type": "string",
+                    "example": "16000"
+                },
+                "manualPrice": {
+                    "type": "string",
+                    "example": "9500"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Bank Central Asia"
+                },
+                "priceMode": {
+                    "type": "string"
+                },
+                "purchaseDate": {
+                    "type": "string",
+                    "example": "2026-01-31"
+                },
+                "quantity": {
+                    "type": "string",
+                    "example": "0.5"
+                },
+                "quoteCurrency": {
+                    "type": "string"
+                },
+                "symbol": {
+                    "type": "string"
+                }
+            }
+        },
+        "investments.FieldMeta": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "enum": [
+                        "TEXT",
+                        "INTEGER",
+                        "DECIMAL",
+                        "DATE",
+                        "ENUM"
+                    ]
+                },
+                "label": {
+                    "type": "string",
+                    "example": "Staked quantity"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "stakedQuantity"
+                },
+                "options": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "required": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "investments.InvestmentDTO": {
+            "type": "object",
+            "properties": {
+                "assetType": {
+                    "type": "string",
+                    "enum": [
+                        "CRYPTO",
+                        "ID_STOCK",
+                        "US_STOCK",
+                        "MUTUAL_FUND",
+                        "GLOBAL_ETF"
+                    ]
+                },
+                "avgBuyPrice": {
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "details": {
+                    "type": "object"
+                },
+                "estimatedAnnualChangePct": {
+                    "type": "string"
+                },
+                "fees": {
+                    "type": "string"
+                },
+                "icon": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "instrumentId": {
+                    "type": "string"
+                },
+                "isShared": {
+                    "type": "boolean"
+                },
+                "manualCurrentValue": {
+                    "type": "string"
+                },
+                "manualFxRate": {
+                    "type": "string"
+                },
+                "manualPrice": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "priceMode": {
+                    "type": "string",
+                    "enum": [
+                        "AUTO",
+                        "MANUAL"
+                    ]
+                },
+                "purchaseDate": {
+                    "type": "string",
+                    "example": "2026-01-31"
+                },
+                "quantity": {
+                    "type": "string",
+                    "example": "200"
+                },
+                "quoteCurrency": {
+                    "type": "string",
+                    "example": "IDR"
+                },
+                "symbol": {
+                    "type": "string"
+                },
+                "updatedAt": {
+                    "type": "string"
+                },
+                "valuation": {
+                    "$ref": "#/definitions/investments.Valuation"
+                }
+            }
+        },
+        "investments.ListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/investments.InvestmentDTO"
+                    }
+                },
+                "summary": {
+                    "$ref": "#/definitions/investments.Summary"
+                }
+            }
+        },
+        "investments.PatchInput": {
+            "type": "object",
+            "properties": {
+                "assetType": {
+                    "type": "string"
+                },
+                "avgBuyPrice": {
+                    "type": "string"
+                },
+                "details": {
+                    "type": "object"
+                },
+                "estimatedAnnualChangePct": {
+                    "type": "string"
+                },
+                "fees": {
+                    "type": "string"
+                },
+                "icon": {
+                    "type": "string",
+                    "maxLength": 64
+                },
+                "manualCurrentValue": {
+                    "type": "string"
+                },
+                "manualFxRate": {
+                    "type": "string"
+                },
+                "manualPrice": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string",
+                    "maxLength": 120,
+                    "minLength": 1
+                },
+                "priceMode": {
+                    "type": "string",
+                    "enum": [
+                        "AUTO",
+                        "MANUAL"
+                    ]
+                },
+                "purchaseDate": {
+                    "type": "string"
+                },
+                "quantity": {
+                    "type": "string"
+                },
+                "quoteCurrency": {
+                    "type": "string",
+                    "maxLength": 8
+                },
+                "symbol": {
+                    "type": "string"
+                }
+            }
+        },
+        "investments.Summary": {
+            "type": "object",
+            "properties": {
+                "currency": {
+                    "type": "string",
+                    "example": "IDR"
+                },
+                "totalCost": {
+                    "type": "string"
+                },
+                "totalValue": {
+                    "type": "string"
+                },
+                "unrealizedPl": {
+                    "type": "string"
+                },
+                "unrealizedPlPct": {
+                    "description": "UnrealizedPLPct is a percentage; null when the total cost is 0.",
+                    "type": "string"
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/currency.Warning"
+                    }
+                }
+            }
+        },
+        "investments.TypeDefaults": {
+            "type": "object",
+            "properties": {
+                "estimatedAnnualChangePct": {
+                    "type": "string"
+                },
+                "fees": {
+                    "type": "string"
+                },
+                "priceMode": {
+                    "type": "string"
+                }
+            }
+        },
+        "investments.TypeMeta": {
+            "type": "object",
+            "properties": {
+                "assetType": {
+                    "type": "string"
+                },
+                "defaultIcon": {
+                    "type": "string"
+                },
+                "defaults": {
+                    "$ref": "#/definitions/investments.TypeDefaults"
+                },
+                "detailFields": {
+                    "description": "DetailFields are the fields of the ` + "`" + `details` + "`" + ` object.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/investments.FieldMeta"
+                    }
+                },
+                "label": {
+                    "type": "string"
+                },
+                "lotSize": {
+                    "type": "integer"
+                },
+                "quantityMode": {
+                    "type": "string",
+                    "enum": [
+                        "QUANTITY",
+                        "LOTS"
+                    ]
+                },
+                "quoteCurrency": {
+                    "description": "null: chosen by the client (default: the space base currency)",
+                    "type": "string"
+                },
+                "quoteCurrencyEditable": {
+                    "type": "boolean"
+                },
+                "supportsAutoPrice": {
+                    "type": "boolean"
+                },
+                "symbolRequired": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "investments.Valuation": {
+            "type": "object",
+            "properties": {
+                "base": {
+                    "description": "Base holds the converted figures; null when no FX rate is available (see Warnings).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/investments.BaseValues"
+                        }
+                    ]
+                },
+                "costBasis": {
+                    "type": "string"
+                },
+                "isStale": {
+                    "type": "boolean"
+                },
+                "marketValue": {
+                    "description": "Native figures, in the investment's quote currency.",
+                    "type": "string"
+                },
+                "price": {
+                    "type": "string"
+                },
+                "priceAsOf": {
+                    "type": "string"
+                },
+                "priceSource": {
+                    "type": "string",
+                    "enum": [
+                        "MARKET",
+                        "MANUAL",
+                        "MANUAL_VALUE"
+                    ]
+                },
+                "unrealizedPl": {
+                    "type": "string"
+                },
+                "unrealizedPlPct": {
+                    "description": "UnrealizedPLPct is a percentage (12.5 means +12.5%); null when the cost basis is 0.",
+                    "type": "string"
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/currency.Warning"
+                    }
                 }
             }
         },

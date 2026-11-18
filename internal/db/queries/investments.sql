@@ -1,0 +1,38 @@
+-- name: CreateInvestment :one
+INSERT INTO investments (
+    space_id, asset_type, price_mode, name, symbol, icon, quote_currency, quantity, avg_buy_price,
+    manual_price, fees, manual_current_value, purchase_date, estimated_annual_change_pct,
+    manual_fx_rate, details, created_by_id
+) VALUES (
+    $1, $2, $3, $4, sqlc.narg('symbol'), $5, $6, $7, $8,
+    $9, $10, sqlc.narg('manual_current_value'), sqlc.narg('purchase_date'), $11,
+    sqlc.narg('manual_fx_rate'), $12, $13
+)
+RETURNING *;
+
+-- name: GetInvestment :one
+SELECT * FROM investments WHERE id = $1 AND space_id = $2 AND deleted_at IS NULL;
+
+-- name: GetInvestmentForUpdate :one
+SELECT * FROM investments WHERE id = $1 AND space_id = $2 AND deleted_at IS NULL FOR UPDATE;
+
+-- name: ListInvestments :many
+SELECT * FROM investments
+WHERE space_id = $1 AND deleted_at IS NULL
+  AND (sqlc.narg('asset_type')::text IS NULL OR asset_type = sqlc.narg('asset_type')::text)
+ORDER BY created_at, id;
+
+-- name: UpdateInvestment :one
+-- Full replacement of the editable columns: the service computes the final values.
+UPDATE investments SET
+    price_mode = $3, name = $4, symbol = sqlc.narg('symbol'), icon = $5, quote_currency = $6,
+    quantity = $7, avg_buy_price = $8, manual_price = $9, fees = $10,
+    manual_current_value = sqlc.narg('manual_current_value'), purchase_date = sqlc.narg('purchase_date'),
+    estimated_annual_change_pct = $11, manual_fx_rate = sqlc.narg('manual_fx_rate'),
+    details = $12, updated_at = now()
+WHERE id = $1 AND space_id = $2 AND deleted_at IS NULL
+RETURNING *;
+
+-- name: SoftDeleteInvestment :execrows
+UPDATE investments SET deleted_at = now(), updated_at = now()
+WHERE id = $1 AND space_id = $2 AND deleted_at IS NULL;
