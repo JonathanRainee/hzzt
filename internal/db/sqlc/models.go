@@ -11,6 +11,21 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+type Category struct {
+	ID           uuid.UUID           `json:"id"`
+	SpaceID      uuid.UUID           `json:"space_id"`
+	Type         string              `json:"type"`
+	Name         string              `json:"name"`
+	Icon         string              `json:"icon"`
+	Color        string              `json:"color"`
+	BudgetAmount decimal.NullDecimal `json:"budget_amount"`
+	SortOrder    int32               `json:"sort_order"`
+	CreatedByID  uuid.UUID           `json:"created_by_id"`
+	CreatedAt    time.Time           `json:"created_at"`
+	UpdatedAt    time.Time           `json:"updated_at"`
+	DeletedAt    *time.Time          `json:"deleted_at"`
+}
+
 type FxRate struct {
 	Base      string          `json:"base"`
 	Quote     string          `json:"quote"`
