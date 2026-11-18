@@ -273,10 +273,11 @@ func TestCreateEachInvestmentType(t *testing.T) {
 		got := e.must(map[string]any{"assetType": "CRYPTO", "name": "Bitcoin", "symbol": "BTC", "quantity": "0.5",
 			"avgBuyPrice": "60000", "manualPrice": "65000", "priceMode": "AUTO"})
 		assert.Equal(t, "AUTO", got.PriceMode)
-		assert.Equal(t, "MANUAL", got.Valuation.PriceSource, "falls back to the manual price until market data is connected")
-		assert.True(t, dec("65000").Equal(dec(got.Valuation.Price)))
+		assert.Equal(t, "MARKET", got.Valuation.PriceSource, "linked to the coin and priced right away (P11)")
+		assert.True(t, dec("63000").Equal(dec(got.Valuation.Price)), "the market price, not the 65000 manual one")
 		assert.False(t, got.Valuation.IsStale)
-		assert.Nil(t, got.Valuation.PriceAsOf)
+		assert.NotNil(t, got.Valuation.PriceAsOf)
+		assert.NotNil(t, got.InstrumentID)
 
 		for _, body := range []map[string]any{clone(bbca, "priceMode", "AUTO"),
 			{"assetType": "MUTUAL_FUND", "name": "F", "quantity": "1", "priceMode": "AUTO", "details": map[string]any{"fundType": "EQUITY"}}} {
