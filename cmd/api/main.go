@@ -20,9 +20,11 @@ import (
 	"github.com/JonathanRainee/hzzt/internal/db"
 	"github.com/JonathanRainee/hzzt/internal/db/sqlc"
 	"github.com/JonathanRainee/hzzt/internal/investments"
+	"github.com/JonathanRainee/hzzt/internal/manualassets"
 	"github.com/JonathanRainee/hzzt/internal/marketdata"
 	"github.com/JonathanRainee/hzzt/internal/marketdata/coinmarketcap"
 	"github.com/JonathanRainee/hzzt/internal/marketdata/massive"
+	"github.com/JonathanRainee/hzzt/internal/networth"
 	"github.com/JonathanRainee/hzzt/internal/platform/email"
 	"github.com/JonathanRainee/hzzt/internal/platform/events"
 	"github.com/JonathanRainee/hzzt/internal/server"
@@ -129,7 +131,10 @@ func run() error {
 	})
 	investmentsSvc := investments.NewService(pool, currencySvc, nil)
 	investmentsSvc.SetMarket(marketSvc)
-	transfersHandler := transfers.NewHandler(transfers.NewService(pool, transactionsSvc, investmentsSvc, nil), authSvc, spacesSvc)
+	manualAssetsSvc := manualassets.NewService(pool, currencySvc, transactionsSvc, nil)
+	manualAssetsHandler := manualassets.NewHandler(manualAssetsSvc, authSvc, spacesSvc)
+	networthHandler := networth.NewHandler(networth.NewService(pool, currencySvc, investmentsSvc, manualAssetsSvc, nil), authSvc, spacesSvc)
+	transfersHandler := transfers.NewHandler(transfers.NewService(pool, transactionsSvc, investmentsSvc, manualAssetsSvc, nil), authSvc, spacesSvc)
 	investmentsHandler := investments.NewHandler(investmentsSvc, authSvc, spacesSvc, investments.DefaultLimits())
 	marketHandler := marketdata.NewHandler(marketSvc, authSvc, marketdata.DefaultLimits())
 	stopMarket, err := marketSvc.StartJobs(ctx, log)
@@ -145,7 +150,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           server.NewRouter(cfg, log, sqlc.New(pool), authHandler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount, walletsHandler.Mount, transactionsHandler.Mount, transfersHandler.Mount, investmentsHandler.Mount, marketHandler.Mount),
+		Handler:           server.NewRouter(cfg, log, sqlc.New(pool), authHandler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount, walletsHandler.Mount, transactionsHandler.Mount, transfersHandler.Mount, investmentsHandler.Mount, marketHandler.Mount, manualAssetsHandler.Mount, networthHandler.Mount),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,

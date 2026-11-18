@@ -17,6 +17,7 @@ import (
 	"github.com/JonathanRainee/hzzt/internal/db/sqlc"
 	"github.com/JonathanRainee/hzzt/internal/investments"
 	"github.com/JonathanRainee/hzzt/internal/ledger"
+	"github.com/JonathanRainee/hzzt/internal/manualassets"
 	"github.com/JonathanRainee/hzzt/internal/platform/apperror"
 	"github.com/JonathanRainee/hzzt/internal/transactions"
 )
@@ -49,15 +50,16 @@ type Service struct {
 	q   *sqlc.Queries
 	txn *transactions.Service
 	inv *investments.Service
+	ma  *manualassets.Service
 	now func() time.Time
 }
 
 // NewService builds the service; now may be nil.
-func NewService(database DB, txn *transactions.Service, inv *investments.Service, now func() time.Time) *Service {
+func NewService(database DB, txn *transactions.Service, inv *investments.Service, ma *manualassets.Service, now func() time.Time) *Service {
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{db: database, q: sqlc.New(database), txn: txn, inv: inv, now: now}
+	return &Service{db: database, q: sqlc.New(database), txn: txn, inv: inv, ma: ma, now: now}
 }
 
 // Trade records a BUY or SELL and returns the transaction.
@@ -67,6 +69,12 @@ func (s *Service) Trade(ctx context.Context, spaceID, userID uuid.UUID, in inves
 		return transactions.Detail{}, err
 	}
 	return s.txn.Get(ctx, spaceID, t.ID)
+}
+
+// isSettlement reports whether the transaction is the settlement of a manual asset.
+func (s *Service) isSettlement(ctx context.Context, spaceID, id uuid.UUID) bool {
+	d, err := s.txn.Get(ctx, spaceID, id)
+	return err == nil && d.ManualAssetID.Valid
 }
 
 // isTrade reports whether the transaction is an investment BUY/SELL.
@@ -201,6 +209,9 @@ func (s *Service) Update(ctx context.Context, spaceID, userID, id uuid.UUID, p P
 	if s.isTrade(ctx, spaceID, id) {
 		return s.updateTrade(ctx, spaceID, userID, id, p)
 	}
+	if s.isSettlement(ctx, spaceID, id) {
+		return transactions.Detail{}, apperror.Unprocessable(CodeNotSupportedYet, "A settlement cannot be edited; delete it and record it again")
+	}
 	if p.Investment != nil {
 		return transactions.Detail{}, apperror.Unprocessable(CodeNotSupportedYet, "Investments are not part of a wallet transfer")
 	}
@@ -303,6 +314,13 @@ func (s *Service) updateTrade(ctx context.Context, spaceID, userID, id uuid.UUID
 func (s *Service) Delete(ctx context.Context, spaceID, userID, id uuid.UUID) error {
 	if s.isTrade(ctx, spaceID, id) {
 		return mapTradeErr(s.inv.DeleteTrade(ctx, spaceID, userID, id))
+	}
+	if s.isSettlement(ctx, spaceID, id) {
+		err := s.ma.DeleteSettlement(ctx, spaceID, uuid.Nil, id)
+		if errors.Is(err, manualassets.ErrNotASettlement) {
+			return errTransferNF
+		}
+		return err
 	}
 	return db.WithTx(ctx, s.db, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)

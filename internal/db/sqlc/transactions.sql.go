@@ -81,42 +81,46 @@ INSERT INTO transactions (
     space_id, type, direction, title, note, amount, currency, wallet_id, category_id,
     occurred_at, created_by_id,
     to_wallet_id, to_amount, to_currency, fx_rate,
-    investment_id, investment_action, quantity, unit_price, fee, realized_pl, position_before, position_after
+    investment_id, investment_action, quantity, unit_price, fee, realized_pl, position_before, position_after,
+    manual_asset_id, settlement_direction
 ) VALUES (
     $1, $2, $7, $8, $9, $3, $4,
     $10, $11,
     $5, $6,
     $12, $13, $14, $15,
     $16, $17, $18, $19,
-    $20, $21, $22, $23
+    $20, $21, $22, $23,
+    $24, $25
 )
-RETURNING id, space_id, type, direction, title, note, amount, currency, wallet_id, category_id, occurred_at, created_by_id, created_at, updated_at, to_wallet_id, to_amount, to_currency, fx_rate, investment_id, investment_action, quantity, unit_price, fee, realized_pl, position_before, position_after, manual_asset_id
+RETURNING id, space_id, type, direction, title, note, amount, currency, wallet_id, category_id, occurred_at, created_by_id, created_at, updated_at, to_wallet_id, to_amount, to_currency, fx_rate, investment_id, investment_action, quantity, unit_price, fee, realized_pl, position_before, position_after, manual_asset_id, settlement_direction
 `
 
 type CreateTransactionParams struct {
-	SpaceID          uuid.UUID           `json:"space_id"`
-	Type             string              `json:"type"`
-	Amount           decimal.Decimal     `json:"amount"`
-	Currency         string              `json:"currency"`
-	OccurredAt       time.Time           `json:"occurred_at"`
-	CreatedByID      uuid.UUID           `json:"created_by_id"`
-	Direction        *string             `json:"direction"`
-	Title            *string             `json:"title"`
-	Note             *string             `json:"note"`
-	WalletID         uuid.NullUUID       `json:"wallet_id"`
-	CategoryID       uuid.NullUUID       `json:"category_id"`
-	ToWalletID       uuid.NullUUID       `json:"to_wallet_id"`
-	ToAmount         decimal.NullDecimal `json:"to_amount"`
-	ToCurrency       *string             `json:"to_currency"`
-	FxRate           decimal.NullDecimal `json:"fx_rate"`
-	InvestmentID     uuid.NullUUID       `json:"investment_id"`
-	InvestmentAction *string             `json:"investment_action"`
-	Quantity         decimal.NullDecimal `json:"quantity"`
-	UnitPrice        decimal.NullDecimal `json:"unit_price"`
-	Fee              decimal.NullDecimal `json:"fee"`
-	RealizedPl       decimal.NullDecimal `json:"realized_pl"`
-	PositionBefore   []byte              `json:"position_before"`
-	PositionAfter    []byte              `json:"position_after"`
+	SpaceID             uuid.UUID           `json:"space_id"`
+	Type                string              `json:"type"`
+	Amount              decimal.Decimal     `json:"amount"`
+	Currency            string              `json:"currency"`
+	OccurredAt          time.Time           `json:"occurred_at"`
+	CreatedByID         uuid.UUID           `json:"created_by_id"`
+	Direction           *string             `json:"direction"`
+	Title               *string             `json:"title"`
+	Note                *string             `json:"note"`
+	WalletID            uuid.NullUUID       `json:"wallet_id"`
+	CategoryID          uuid.NullUUID       `json:"category_id"`
+	ToWalletID          uuid.NullUUID       `json:"to_wallet_id"`
+	ToAmount            decimal.NullDecimal `json:"to_amount"`
+	ToCurrency          *string             `json:"to_currency"`
+	FxRate              decimal.NullDecimal `json:"fx_rate"`
+	InvestmentID        uuid.NullUUID       `json:"investment_id"`
+	InvestmentAction    *string             `json:"investment_action"`
+	Quantity            decimal.NullDecimal `json:"quantity"`
+	UnitPrice           decimal.NullDecimal `json:"unit_price"`
+	Fee                 decimal.NullDecimal `json:"fee"`
+	RealizedPl          decimal.NullDecimal `json:"realized_pl"`
+	PositionBefore      []byte              `json:"position_before"`
+	PositionAfter       []byte              `json:"position_after"`
+	ManualAssetID       uuid.NullUUID       `json:"manual_asset_id"`
+	SettlementDirection *string             `json:"settlement_direction"`
 }
 
 func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionParams) (Transaction, error) {
@@ -144,6 +148,8 @@ func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionPa
 		arg.RealizedPl,
 		arg.PositionBefore,
 		arg.PositionAfter,
+		arg.ManualAssetID,
+		arg.SettlementDirection,
 	)
 	var i Transaction
 	err := row.Scan(
@@ -174,6 +180,7 @@ func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionPa
 		&i.PositionBefore,
 		&i.PositionAfter,
 		&i.ManualAssetID,
+		&i.SettlementDirection,
 	)
 	return i, err
 }
@@ -187,6 +194,8 @@ FROM transactions t
 LEFT JOIN wallets w     ON w.id = t.wallet_id
 LEFT JOIN wallets tw    ON tw.id = t.to_wallet_id
 LEFT JOIN categories c  ON c.id = t.category_id
+LEFT JOIN investments inv ON inv.id = t.investment_id
+LEFT JOIN manual_assets ma ON ma.id = t.manual_asset_id
 WHERE t.space_id = $1
   AND ($3::timestamptz IS NULL OR t.occurred_at >= $3)
   AND ($4::timestamptz IS NULL OR t.occurred_at < $4)
@@ -197,7 +206,9 @@ WHERE t.space_id = $1
        OR t.to_wallet_id = ANY($7::uuid[]))
   AND ($8::text IS NULL
        OR t.title ILIKE $8 OR t.note ILIKE $8
-       OR c.name ILIKE $8 OR w.name ILIKE $8 OR tw.name ILIKE $8)
+       OR c.name ILIKE $8 OR w.name ILIKE $8 OR tw.name ILIKE $8
+       OR inv.name ILIKE $8 OR inv.symbol ILIKE $8
+       OR ma.name ILIKE $8 OR ma.counterparty_name ILIKE $8)
 GROUP BY 1, 2, 3
 ORDER BY 1 DESC
 `
@@ -274,16 +285,18 @@ func (q *Queries) DeleteTransaction(ctx context.Context, arg DeleteTransactionPa
 }
 
 const getTransactionDetail = `-- name: GetTransactionDetail :one
-SELECT t.id, t.space_id, t.type, t.direction, t.title, t.note, t.amount, t.currency, t.wallet_id, t.category_id, t.occurred_at, t.created_by_id, t.created_at, t.updated_at, t.to_wallet_id, t.to_amount, t.to_currency, t.fx_rate, t.investment_id, t.investment_action, t.quantity, t.unit_price, t.fee, t.realized_pl, t.position_before, t.position_after, t.manual_asset_id,
+SELECT t.id, t.space_id, t.type, t.direction, t.title, t.note, t.amount, t.currency, t.wallet_id, t.category_id, t.occurred_at, t.created_by_id, t.created_at, t.updated_at, t.to_wallet_id, t.to_amount, t.to_currency, t.fx_rate, t.investment_id, t.investment_action, t.quantity, t.unit_price, t.fee, t.realized_pl, t.position_before, t.position_after, t.manual_asset_id, t.settlement_direction,
        w.name  AS wallet_name,  w.icon  AS wallet_icon,
        tw.name AS to_wallet_name, tw.icon AS to_wallet_icon,
        c.name  AS category_name, c.icon AS category_icon, c.color AS category_color,
-       inv.name AS investment_name, inv.symbol AS investment_symbol, inv.icon AS investment_icon
+       inv.name AS investment_name, inv.symbol AS investment_symbol, inv.icon AS investment_icon,
+       ma.name AS manual_asset_name, ma.icon AS manual_asset_icon
 FROM transactions t
 LEFT JOIN wallets w     ON w.id = t.wallet_id
 LEFT JOIN wallets tw    ON tw.id = t.to_wallet_id
 LEFT JOIN categories c  ON c.id = t.category_id
 LEFT JOIN investments inv ON inv.id = t.investment_id
+LEFT JOIN manual_assets ma ON ma.id = t.manual_asset_id
 WHERE t.id = $1 AND t.space_id = $2
 `
 
@@ -293,43 +306,46 @@ type GetTransactionDetailParams struct {
 }
 
 type GetTransactionDetailRow struct {
-	ID               uuid.UUID           `json:"id"`
-	SpaceID          uuid.UUID           `json:"space_id"`
-	Type             string              `json:"type"`
-	Direction        *string             `json:"direction"`
-	Title            *string             `json:"title"`
-	Note             *string             `json:"note"`
-	Amount           decimal.Decimal     `json:"amount"`
-	Currency         string              `json:"currency"`
-	WalletID         uuid.NullUUID       `json:"wallet_id"`
-	CategoryID       uuid.NullUUID       `json:"category_id"`
-	OccurredAt       time.Time           `json:"occurred_at"`
-	CreatedByID      uuid.UUID           `json:"created_by_id"`
-	CreatedAt        time.Time           `json:"created_at"`
-	UpdatedAt        time.Time           `json:"updated_at"`
-	ToWalletID       uuid.NullUUID       `json:"to_wallet_id"`
-	ToAmount         decimal.NullDecimal `json:"to_amount"`
-	ToCurrency       *string             `json:"to_currency"`
-	FxRate           decimal.NullDecimal `json:"fx_rate"`
-	InvestmentID     uuid.NullUUID       `json:"investment_id"`
-	InvestmentAction *string             `json:"investment_action"`
-	Quantity         decimal.NullDecimal `json:"quantity"`
-	UnitPrice        decimal.NullDecimal `json:"unit_price"`
-	Fee              decimal.NullDecimal `json:"fee"`
-	RealizedPl       decimal.NullDecimal `json:"realized_pl"`
-	PositionBefore   []byte              `json:"position_before"`
-	PositionAfter    []byte              `json:"position_after"`
-	ManualAssetID    uuid.NullUUID       `json:"manual_asset_id"`
-	WalletName       *string             `json:"wallet_name"`
-	WalletIcon       *string             `json:"wallet_icon"`
-	ToWalletName     *string             `json:"to_wallet_name"`
-	ToWalletIcon     *string             `json:"to_wallet_icon"`
-	CategoryName     *string             `json:"category_name"`
-	CategoryIcon     *string             `json:"category_icon"`
-	CategoryColor    *string             `json:"category_color"`
-	InvestmentName   *string             `json:"investment_name"`
-	InvestmentSymbol *string             `json:"investment_symbol"`
-	InvestmentIcon   *string             `json:"investment_icon"`
+	ID                  uuid.UUID           `json:"id"`
+	SpaceID             uuid.UUID           `json:"space_id"`
+	Type                string              `json:"type"`
+	Direction           *string             `json:"direction"`
+	Title               *string             `json:"title"`
+	Note                *string             `json:"note"`
+	Amount              decimal.Decimal     `json:"amount"`
+	Currency            string              `json:"currency"`
+	WalletID            uuid.NullUUID       `json:"wallet_id"`
+	CategoryID          uuid.NullUUID       `json:"category_id"`
+	OccurredAt          time.Time           `json:"occurred_at"`
+	CreatedByID         uuid.UUID           `json:"created_by_id"`
+	CreatedAt           time.Time           `json:"created_at"`
+	UpdatedAt           time.Time           `json:"updated_at"`
+	ToWalletID          uuid.NullUUID       `json:"to_wallet_id"`
+	ToAmount            decimal.NullDecimal `json:"to_amount"`
+	ToCurrency          *string             `json:"to_currency"`
+	FxRate              decimal.NullDecimal `json:"fx_rate"`
+	InvestmentID        uuid.NullUUID       `json:"investment_id"`
+	InvestmentAction    *string             `json:"investment_action"`
+	Quantity            decimal.NullDecimal `json:"quantity"`
+	UnitPrice           decimal.NullDecimal `json:"unit_price"`
+	Fee                 decimal.NullDecimal `json:"fee"`
+	RealizedPl          decimal.NullDecimal `json:"realized_pl"`
+	PositionBefore      []byte              `json:"position_before"`
+	PositionAfter       []byte              `json:"position_after"`
+	ManualAssetID       uuid.NullUUID       `json:"manual_asset_id"`
+	SettlementDirection *string             `json:"settlement_direction"`
+	WalletName          *string             `json:"wallet_name"`
+	WalletIcon          *string             `json:"wallet_icon"`
+	ToWalletName        *string             `json:"to_wallet_name"`
+	ToWalletIcon        *string             `json:"to_wallet_icon"`
+	CategoryName        *string             `json:"category_name"`
+	CategoryIcon        *string             `json:"category_icon"`
+	CategoryColor       *string             `json:"category_color"`
+	InvestmentName      *string             `json:"investment_name"`
+	InvestmentSymbol    *string             `json:"investment_symbol"`
+	InvestmentIcon      *string             `json:"investment_icon"`
+	ManualAssetName     *string             `json:"manual_asset_name"`
+	ManualAssetIcon     *string             `json:"manual_asset_icon"`
 }
 
 func (q *Queries) GetTransactionDetail(ctx context.Context, arg GetTransactionDetailParams) (GetTransactionDetailRow, error) {
@@ -363,6 +379,7 @@ func (q *Queries) GetTransactionDetail(ctx context.Context, arg GetTransactionDe
 		&i.PositionBefore,
 		&i.PositionAfter,
 		&i.ManualAssetID,
+		&i.SettlementDirection,
 		&i.WalletName,
 		&i.WalletIcon,
 		&i.ToWalletName,
@@ -373,12 +390,14 @@ func (q *Queries) GetTransactionDetail(ctx context.Context, arg GetTransactionDe
 		&i.InvestmentName,
 		&i.InvestmentSymbol,
 		&i.InvestmentIcon,
+		&i.ManualAssetName,
+		&i.ManualAssetIcon,
 	)
 	return i, err
 }
 
 const getTransactionForUpdate = `-- name: GetTransactionForUpdate :one
-SELECT id, space_id, type, direction, title, note, amount, currency, wallet_id, category_id, occurred_at, created_by_id, created_at, updated_at, to_wallet_id, to_amount, to_currency, fx_rate, investment_id, investment_action, quantity, unit_price, fee, realized_pl, position_before, position_after, manual_asset_id FROM transactions WHERE id = $1 AND space_id = $2 FOR UPDATE
+SELECT id, space_id, type, direction, title, note, amount, currency, wallet_id, category_id, occurred_at, created_by_id, created_at, updated_at, to_wallet_id, to_amount, to_currency, fx_rate, investment_id, investment_action, quantity, unit_price, fee, realized_pl, position_before, position_after, manual_asset_id, settlement_direction FROM transactions WHERE id = $1 AND space_id = $2 FOR UPDATE
 `
 
 type GetTransactionForUpdateParams struct {
@@ -417,21 +436,24 @@ func (q *Queries) GetTransactionForUpdate(ctx context.Context, arg GetTransactio
 		&i.PositionBefore,
 		&i.PositionAfter,
 		&i.ManualAssetID,
+		&i.SettlementDirection,
 	)
 	return i, err
 }
 
 const listTransactions = `-- name: ListTransactions :many
-SELECT t.id, t.space_id, t.type, t.direction, t.title, t.note, t.amount, t.currency, t.wallet_id, t.category_id, t.occurred_at, t.created_by_id, t.created_at, t.updated_at, t.to_wallet_id, t.to_amount, t.to_currency, t.fx_rate, t.investment_id, t.investment_action, t.quantity, t.unit_price, t.fee, t.realized_pl, t.position_before, t.position_after, t.manual_asset_id,
+SELECT t.id, t.space_id, t.type, t.direction, t.title, t.note, t.amount, t.currency, t.wallet_id, t.category_id, t.occurred_at, t.created_by_id, t.created_at, t.updated_at, t.to_wallet_id, t.to_amount, t.to_currency, t.fx_rate, t.investment_id, t.investment_action, t.quantity, t.unit_price, t.fee, t.realized_pl, t.position_before, t.position_after, t.manual_asset_id, t.settlement_direction,
        w.name  AS wallet_name,  w.icon  AS wallet_icon,
        tw.name AS to_wallet_name, tw.icon AS to_wallet_icon,
        c.name  AS category_name, c.icon AS category_icon, c.color AS category_color,
-       inv.name AS investment_name, inv.symbol AS investment_symbol, inv.icon AS investment_icon
+       inv.name AS investment_name, inv.symbol AS investment_symbol, inv.icon AS investment_icon,
+       ma.name AS manual_asset_name, ma.icon AS manual_asset_icon
 FROM transactions t
 LEFT JOIN wallets w     ON w.id = t.wallet_id
 LEFT JOIN wallets tw    ON tw.id = t.to_wallet_id
 LEFT JOIN categories c  ON c.id = t.category_id
 LEFT JOIN investments inv ON inv.id = t.investment_id
+LEFT JOIN manual_assets ma ON ma.id = t.manual_asset_id
 WHERE t.space_id = $1
   AND ($2::timestamptz IS NULL OR t.occurred_at >= $2)
   AND ($3::timestamptz IS NULL OR t.occurred_at < $3)
@@ -443,7 +465,8 @@ WHERE t.space_id = $1
   AND ($7::text IS NULL
        OR t.title ILIKE $7 OR t.note ILIKE $7
        OR c.name ILIKE $7 OR w.name ILIKE $7 OR tw.name ILIKE $7
-       OR inv.name ILIKE $7 OR inv.symbol ILIKE $7)
+       OR inv.name ILIKE $7 OR inv.symbol ILIKE $7
+       OR ma.name ILIKE $7 OR ma.counterparty_name ILIKE $7)
   AND ($8::timestamptz IS NULL
        OR (t.occurred_at, t.id) < ($8::timestamptz, $9::uuid))
 ORDER BY t.occurred_at DESC, t.id DESC
@@ -464,43 +487,46 @@ type ListTransactionsParams struct {
 }
 
 type ListTransactionsRow struct {
-	ID               uuid.UUID           `json:"id"`
-	SpaceID          uuid.UUID           `json:"space_id"`
-	Type             string              `json:"type"`
-	Direction        *string             `json:"direction"`
-	Title            *string             `json:"title"`
-	Note             *string             `json:"note"`
-	Amount           decimal.Decimal     `json:"amount"`
-	Currency         string              `json:"currency"`
-	WalletID         uuid.NullUUID       `json:"wallet_id"`
-	CategoryID       uuid.NullUUID       `json:"category_id"`
-	OccurredAt       time.Time           `json:"occurred_at"`
-	CreatedByID      uuid.UUID           `json:"created_by_id"`
-	CreatedAt        time.Time           `json:"created_at"`
-	UpdatedAt        time.Time           `json:"updated_at"`
-	ToWalletID       uuid.NullUUID       `json:"to_wallet_id"`
-	ToAmount         decimal.NullDecimal `json:"to_amount"`
-	ToCurrency       *string             `json:"to_currency"`
-	FxRate           decimal.NullDecimal `json:"fx_rate"`
-	InvestmentID     uuid.NullUUID       `json:"investment_id"`
-	InvestmentAction *string             `json:"investment_action"`
-	Quantity         decimal.NullDecimal `json:"quantity"`
-	UnitPrice        decimal.NullDecimal `json:"unit_price"`
-	Fee              decimal.NullDecimal `json:"fee"`
-	RealizedPl       decimal.NullDecimal `json:"realized_pl"`
-	PositionBefore   []byte              `json:"position_before"`
-	PositionAfter    []byte              `json:"position_after"`
-	ManualAssetID    uuid.NullUUID       `json:"manual_asset_id"`
-	WalletName       *string             `json:"wallet_name"`
-	WalletIcon       *string             `json:"wallet_icon"`
-	ToWalletName     *string             `json:"to_wallet_name"`
-	ToWalletIcon     *string             `json:"to_wallet_icon"`
-	CategoryName     *string             `json:"category_name"`
-	CategoryIcon     *string             `json:"category_icon"`
-	CategoryColor    *string             `json:"category_color"`
-	InvestmentName   *string             `json:"investment_name"`
-	InvestmentSymbol *string             `json:"investment_symbol"`
-	InvestmentIcon   *string             `json:"investment_icon"`
+	ID                  uuid.UUID           `json:"id"`
+	SpaceID             uuid.UUID           `json:"space_id"`
+	Type                string              `json:"type"`
+	Direction           *string             `json:"direction"`
+	Title               *string             `json:"title"`
+	Note                *string             `json:"note"`
+	Amount              decimal.Decimal     `json:"amount"`
+	Currency            string              `json:"currency"`
+	WalletID            uuid.NullUUID       `json:"wallet_id"`
+	CategoryID          uuid.NullUUID       `json:"category_id"`
+	OccurredAt          time.Time           `json:"occurred_at"`
+	CreatedByID         uuid.UUID           `json:"created_by_id"`
+	CreatedAt           time.Time           `json:"created_at"`
+	UpdatedAt           time.Time           `json:"updated_at"`
+	ToWalletID          uuid.NullUUID       `json:"to_wallet_id"`
+	ToAmount            decimal.NullDecimal `json:"to_amount"`
+	ToCurrency          *string             `json:"to_currency"`
+	FxRate              decimal.NullDecimal `json:"fx_rate"`
+	InvestmentID        uuid.NullUUID       `json:"investment_id"`
+	InvestmentAction    *string             `json:"investment_action"`
+	Quantity            decimal.NullDecimal `json:"quantity"`
+	UnitPrice           decimal.NullDecimal `json:"unit_price"`
+	Fee                 decimal.NullDecimal `json:"fee"`
+	RealizedPl          decimal.NullDecimal `json:"realized_pl"`
+	PositionBefore      []byte              `json:"position_before"`
+	PositionAfter       []byte              `json:"position_after"`
+	ManualAssetID       uuid.NullUUID       `json:"manual_asset_id"`
+	SettlementDirection *string             `json:"settlement_direction"`
+	WalletName          *string             `json:"wallet_name"`
+	WalletIcon          *string             `json:"wallet_icon"`
+	ToWalletName        *string             `json:"to_wallet_name"`
+	ToWalletIcon        *string             `json:"to_wallet_icon"`
+	CategoryName        *string             `json:"category_name"`
+	CategoryIcon        *string             `json:"category_icon"`
+	CategoryColor       *string             `json:"category_color"`
+	InvestmentName      *string             `json:"investment_name"`
+	InvestmentSymbol    *string             `json:"investment_symbol"`
+	InvestmentIcon      *string             `json:"investment_icon"`
+	ManualAssetName     *string             `json:"manual_asset_name"`
+	ManualAssetIcon     *string             `json:"manual_asset_icon"`
 }
 
 func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsParams) ([]ListTransactionsRow, error) {
@@ -551,6 +577,7 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 			&i.PositionBefore,
 			&i.PositionAfter,
 			&i.ManualAssetID,
+			&i.SettlementDirection,
 			&i.WalletName,
 			&i.WalletIcon,
 			&i.ToWalletName,
@@ -561,6 +588,8 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 			&i.InvestmentName,
 			&i.InvestmentSymbol,
 			&i.InvestmentIcon,
+			&i.ManualAssetName,
+			&i.ManualAssetIcon,
 		); err != nil {
 			return nil, err
 		}
@@ -577,7 +606,7 @@ UPDATE transactions SET
     type = $3, wallet_id = $4, category_id = $8, amount = $5, currency = $6,
     title = $9, note = $10, occurred_at = $7, updated_at = now()
 WHERE id = $1 AND space_id = $2
-RETURNING id, space_id, type, direction, title, note, amount, currency, wallet_id, category_id, occurred_at, created_by_id, created_at, updated_at, to_wallet_id, to_amount, to_currency, fx_rate, investment_id, investment_action, quantity, unit_price, fee, realized_pl, position_before, position_after, manual_asset_id
+RETURNING id, space_id, type, direction, title, note, amount, currency, wallet_id, category_id, occurred_at, created_by_id, created_at, updated_at, to_wallet_id, to_amount, to_currency, fx_rate, investment_id, investment_action, quantity, unit_price, fee, realized_pl, position_before, position_after, manual_asset_id, settlement_direction
 `
 
 type UpdateIncomeExpenseParams struct {
@@ -635,6 +664,7 @@ func (q *Queries) UpdateIncomeExpense(ctx context.Context, arg UpdateIncomeExpen
 		&i.PositionBefore,
 		&i.PositionAfter,
 		&i.ManualAssetID,
+		&i.SettlementDirection,
 	)
 	return i, err
 }
@@ -645,7 +675,7 @@ UPDATE transactions SET
     quantity = $9, unit_price = $10, fee = $11, realized_pl = $15,
     position_before = $12, position_after = $13, occurred_at = $14, note = $16, updated_at = now()
 WHERE id = $1 AND space_id = $2 AND investment_id IS NOT NULL
-RETURNING id, space_id, type, direction, title, note, amount, currency, wallet_id, category_id, occurred_at, created_by_id, created_at, updated_at, to_wallet_id, to_amount, to_currency, fx_rate, investment_id, investment_action, quantity, unit_price, fee, realized_pl, position_before, position_after, manual_asset_id
+RETURNING id, space_id, type, direction, title, note, amount, currency, wallet_id, category_id, occurred_at, created_by_id, created_at, updated_at, to_wallet_id, to_amount, to_currency, fx_rate, investment_id, investment_action, quantity, unit_price, fee, realized_pl, position_before, position_after, manual_asset_id, settlement_direction
 `
 
 type UpdateInvestmentTradeParams struct {
@@ -716,6 +746,7 @@ func (q *Queries) UpdateInvestmentTrade(ctx context.Context, arg UpdateInvestmen
 		&i.PositionBefore,
 		&i.PositionAfter,
 		&i.ManualAssetID,
+		&i.SettlementDirection,
 	)
 	return i, err
 }
@@ -723,7 +754,7 @@ func (q *Queries) UpdateInvestmentTrade(ctx context.Context, arg UpdateInvestmen
 const updateTransactionNote = `-- name: UpdateTransactionNote :one
 UPDATE transactions SET note = $3, updated_at = now()
 WHERE id = $1 AND space_id = $2
-RETURNING id, space_id, type, direction, title, note, amount, currency, wallet_id, category_id, occurred_at, created_by_id, created_at, updated_at, to_wallet_id, to_amount, to_currency, fx_rate, investment_id, investment_action, quantity, unit_price, fee, realized_pl, position_before, position_after, manual_asset_id
+RETURNING id, space_id, type, direction, title, note, amount, currency, wallet_id, category_id, occurred_at, created_by_id, created_at, updated_at, to_wallet_id, to_amount, to_currency, fx_rate, investment_id, investment_action, quantity, unit_price, fee, realized_pl, position_before, position_after, manual_asset_id, settlement_direction
 `
 
 type UpdateTransactionNoteParams struct {
@@ -763,6 +794,7 @@ func (q *Queries) UpdateTransactionNote(ctx context.Context, arg UpdateTransacti
 		&i.PositionBefore,
 		&i.PositionAfter,
 		&i.ManualAssetID,
+		&i.SettlementDirection,
 	)
 	return i, err
 }
@@ -773,7 +805,7 @@ UPDATE transactions SET
     to_amount = $7, to_currency = $8, fx_rate = $9, occurred_at = $10,
     note = $11, updated_at = now()
 WHERE id = $1 AND space_id = $2 AND type = 'TRANSFER'
-RETURNING id, space_id, type, direction, title, note, amount, currency, wallet_id, category_id, occurred_at, created_by_id, created_at, updated_at, to_wallet_id, to_amount, to_currency, fx_rate, investment_id, investment_action, quantity, unit_price, fee, realized_pl, position_before, position_after, manual_asset_id
+RETURNING id, space_id, type, direction, title, note, amount, currency, wallet_id, category_id, occurred_at, created_by_id, created_at, updated_at, to_wallet_id, to_amount, to_currency, fx_rate, investment_id, investment_action, quantity, unit_price, fee, realized_pl, position_before, position_after, manual_asset_id, settlement_direction
 `
 
 type UpdateTransferParams struct {
@@ -833,6 +865,7 @@ func (q *Queries) UpdateTransfer(ctx context.Context, arg UpdateTransferParams) 
 		&i.PositionBefore,
 		&i.PositionAfter,
 		&i.ManualAssetID,
+		&i.SettlementDirection,
 	)
 	return i, err
 }

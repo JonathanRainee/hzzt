@@ -29,6 +29,10 @@ const (
 	DirectionIn  = "IN"
 	DirectionOut = "OUT"
 
+	// Settlement directions on TRANSFER transactions tied to a manual asset.
+	SettlementIn  = "IN"  // money received back for a receivable: wallet +amount
+	SettlementOut = "OUT" // a debt payment: wallet −amount
+
 	// Investment actions on TRANSFER transactions.
 	ActionBuy  = "BUY"
 	ActionSell = "SELL"
@@ -80,6 +84,17 @@ func Deltas(t sqlc.Transaction) ([]Delta, error) {
 		w, err := need()
 		if err != nil {
 			return nil, err
+		}
+		// A settlement of money owed / debt moves the wallet only.
+		if t.SettlementDirection != nil {
+			switch *t.SettlementDirection {
+			case SettlementIn:
+				return []Delta{{w, t.Amount}}, nil
+			case SettlementOut:
+				return []Delta{{w, t.Amount.Neg()}}, nil
+			default:
+				return nil, fmt.Errorf("ledger: transfer %s has unknown settlement direction %q", t.ID, *t.SettlementDirection)
+			}
 		}
 		// An investment BUY/SELL is a transfer between a wallet and an investment:
 		// only the wallet side exists in the ledger.

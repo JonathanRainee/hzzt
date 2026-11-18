@@ -114,8 +114,8 @@ func (s *Service) EnsureRates(ctx context.Context) error {
 }
 
 // liveRates loads the newest USD-based rate per quote.
-func (s *Service) liveRates(ctx context.Context) (map[string]decimal.Decimal, time.Time, error) {
-	rows, err := s.q.LatestFxRates(ctx, today(s.now()))
+func (s *Service) liveRates(ctx context.Context, at time.Time) (map[string]decimal.Decimal, time.Time, error) {
+	rows, err := s.q.LatestFxRates(ctx, today(at))
 	if err != nil {
 		return nil, time.Time{}, err
 	}
@@ -133,6 +133,12 @@ func (s *Service) liveRates(ctx context.Context) (map[string]decimal.Decimal, ti
 // BuildContext loads the space's currency settings, manual rates and live
 // rates once, for use by every aggregation in a request.
 func (s *Service) BuildContext(ctx context.Context, spaceID uuid.UUID) (*ConversionContext, error) {
+	return s.BuildContextAt(ctx, spaceID, s.now())
+}
+
+// BuildContextAt is BuildContext using the live rates in force at `at` (the
+// newest rate with as_of on or before that date).
+func (s *Service) BuildContextAt(ctx context.Context, spaceID uuid.UUID, at time.Time) (*ConversionContext, error) {
 	sp, err := s.q.GetSpaceByID(ctx, spaceID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, apperror.NotFound("Space not found")
@@ -152,7 +158,7 @@ func (s *Service) BuildContext(ctx context.Context, spaceID uuid.UUID) (*Convers
 	for _, m := range manual {
 		cc.ManualRates[pairKey(m.Base, m.Quote)] = m.Rate
 	}
-	cc.Rates, cc.AsOf, err = s.liveRates(ctx)
+	cc.Rates, cc.AsOf, err = s.liveRates(ctx, at)
 	if err != nil {
 		return nil, err
 	}

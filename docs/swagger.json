@@ -2671,6 +2671,385 @@
                 }
             }
         },
+        "/spaces/{spaceId}/manual-assets": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "`totals` converts each kind to the space base currency; items without a usable FX rate are left out and reported in that kind's `warnings`.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "manual-assets"
+                ],
+                "summary": "List fixed assets, money owed and debt",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "FIXED_ASSET, RECEIVABLE or LIABILITY",
+                        "name": "kind",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/manualassets.ListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "For a liability `currentValue` is the outstanding amount. `estimatedAnnualChangePct` applies to fixed assets only.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "manual-assets"
+                ],
+                "summary": "Create a fixed asset, a receivable (money owed to me) or a liability (debt)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Asset",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/manualassets.createRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/manualassets.AssetDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/spaces/{spaceId}/manual-assets/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "manual-assets"
+                ],
+                "summary": "Get an asset with its value history",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/manualassets.AssetDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "manual-assets"
+                ],
+                "summary": "Delete an asset (soft delete; its settlements are kept for history)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Changing `currentValue` is recorded in the value history. `counterpartyName`, `dueDate`, `estimatedAnnualChangePct` and `note` accept null to clear. The currency can only change while the asset has no settlements (MANUAL_ASSET_CURRENCY_LOCKED).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "manual-assets"
+                ],
+                "summary": "Update an asset",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Fields to change",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/manualassets.updateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/manualassets.AssetDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "422": {
+                        "description": "MANUAL_ASSET_CURRENCY_LOCKED",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/spaces/{spaceId}/manual-assets/{id}/settlements": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "RECEIVABLE: the wallet is credited and the amount owed goes down (money received back). LIABILITY: the wallet is debited and the outstanding amount goes down (a debt payment). Recorded as a TRANSFER transaction tied to the asset. The wallet must use the asset's currency (422 SETTLEMENT_CURRENCY_MISMATCH) and the amount must not exceed the current value (422 SETTLEMENT_EXCEEDS_BALANCE). Fixed assets cannot be settled.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "manual-assets"
+                ],
+                "summary": "Settle money owed or pay down a debt through a wallet",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Settlement",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/manualassets.settleRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/manualassets.SettleResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "422": {
+                        "description": "SETTLEMENT_EXCEEDS_BALANCE / SETTLEMENT_CURRENCY_MISMATCH / SETTLEMENT_NOT_SUPPORTED",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/spaces/{spaceId}/manual-assets/{id}/settlements/{txnId}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "manual-assets"
+                ],
+                "summary": "Reverse a settlement: the wallet effect is undone and the asset's value goes back up",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Asset ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Settlement transaction ID",
+                        "name": "txnId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/spaces/{spaceId}/members": {
             "get": {
                 "security": [
@@ -2758,6 +3137,46 @@
                     },
                     "422": {
                         "description": "OWNER_CANNOT_LEAVE",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/spaces/{spaceId}/net-worth/summary": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "netWorth = cash + investments (my share, including investments shared into this space) + fixedAssets + receivables − liabilities, all converted to the space base currency. Anything without a usable FX rate is left out and reported in `warnings`. In CASH_ONLY tracking mode only `cash` and `netWorth` (= cash) are returned.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "net-worth"
+                ],
+                "summary": "Net-worth summary",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/networth.SummaryDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/httpx.ErrorEnvelope"
                         }
@@ -4982,6 +5401,222 @@
                 }
             }
         },
+        "manualassets.AssetDTO": {
+            "type": "object",
+            "properties": {
+                "counterpartyName": {
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "currency": {
+                    "type": "string",
+                    "example": "IDR"
+                },
+                "currentValue": {
+                    "description": "a liability's outstanding amount",
+                    "type": "string",
+                    "example": "500"
+                },
+                "dueDate": {
+                    "type": "string",
+                    "example": "2026-12-31"
+                },
+                "estimatedAnnualChangePct": {
+                    "type": "string"
+                },
+                "history": {
+                    "description": "detail only, newest first",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/manualassets.ValueChangeDTO"
+                    }
+                },
+                "icon": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string",
+                    "enum": [
+                        "FIXED_ASSET",
+                        "RECEIVABLE",
+                        "LIABILITY"
+                    ]
+                },
+                "name": {
+                    "type": "string"
+                },
+                "note": {
+                    "type": "string"
+                },
+                "updatedAt": {
+                    "type": "string"
+                }
+            }
+        },
+        "manualassets.ListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/manualassets.AssetDTO"
+                    }
+                },
+                "totals": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/currency.AggregateResult"
+                    }
+                }
+            }
+        },
+        "manualassets.SettleResponse": {
+            "type": "object",
+            "properties": {
+                "asset": {
+                    "$ref": "#/definitions/manualassets.AssetDTO"
+                },
+                "transaction": {
+                    "$ref": "#/definitions/transactions.TransactionDTO"
+                }
+            }
+        },
+        "manualassets.ValueChangeDTO": {
+            "type": "object",
+            "properties": {
+                "changedAt": {
+                    "type": "string"
+                },
+                "newValue": {
+                    "type": "string"
+                },
+                "previousValue": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string",
+                    "enum": [
+                        "MANUAL",
+                        "SETTLEMENT"
+                    ]
+                },
+                "transactionId": {
+                    "type": "string"
+                }
+            }
+        },
+        "manualassets.createRequest": {
+            "type": "object",
+            "required": [
+                "currentValue",
+                "kind",
+                "name"
+            ],
+            "properties": {
+                "counterpartyName": {
+                    "type": "string",
+                    "maxLength": 120
+                },
+                "currency": {
+                    "type": "string",
+                    "maxLength": 8
+                },
+                "currentValue": {
+                    "type": "string",
+                    "example": "500"
+                },
+                "dueDate": {
+                    "type": "string",
+                    "maxLength": 10,
+                    "example": "2026-12-31"
+                },
+                "estimatedAnnualChangePct": {
+                    "type": "string"
+                },
+                "icon": {
+                    "type": "string",
+                    "maxLength": 64
+                },
+                "kind": {
+                    "type": "string",
+                    "enum": [
+                        "FIXED_ASSET",
+                        "RECEIVABLE",
+                        "LIABILITY"
+                    ]
+                },
+                "name": {
+                    "type": "string",
+                    "maxLength": 120,
+                    "minLength": 1
+                },
+                "note": {
+                    "type": "string",
+                    "maxLength": 2000
+                }
+            }
+        },
+        "manualassets.settleRequest": {
+            "type": "object",
+            "required": [
+                "amount",
+                "walletId"
+            ],
+            "properties": {
+                "amount": {
+                    "type": "string",
+                    "example": "200"
+                },
+                "note": {
+                    "type": "string",
+                    "maxLength": 1000
+                },
+                "occurredAt": {
+                    "type": "string"
+                },
+                "walletId": {
+                    "type": "string"
+                }
+            }
+        },
+        "manualassets.updateRequest": {
+            "type": "object",
+            "properties": {
+                "counterpartyName": {
+                    "type": "string"
+                },
+                "currency": {
+                    "type": "string",
+                    "maxLength": 8
+                },
+                "currentValue": {
+                    "type": "string"
+                },
+                "dueDate": {
+                    "type": "string"
+                },
+                "estimatedAnnualChangePct": {
+                    "type": "string"
+                },
+                "icon": {
+                    "type": "string",
+                    "maxLength": 64
+                },
+                "name": {
+                    "type": "string",
+                    "maxLength": 120,
+                    "minLength": 1
+                },
+                "note": {
+                    "type": "string"
+                }
+            }
+        },
         "marketdata.InstrumentDTO": {
             "type": "object",
             "properties": {
@@ -4999,6 +5634,67 @@
                 "symbol": {
                     "type": "string",
                     "example": "BTC"
+                }
+            }
+        },
+        "networth.InvestmentsDTO": {
+            "type": "object",
+            "properties": {
+                "cost": {
+                    "type": "string"
+                },
+                "unrealizedPl": {
+                    "type": "string"
+                },
+                "unrealizedPlPct": {
+                    "description": "a percentage; null when the cost is 0",
+                    "type": "string"
+                },
+                "value": {
+                    "type": "string"
+                }
+            }
+        },
+        "networth.SummaryDTO": {
+            "type": "object",
+            "properties": {
+                "asOf": {
+                    "type": "string"
+                },
+                "cash": {
+                    "type": "string"
+                },
+                "currency": {
+                    "type": "string",
+                    "example": "USD"
+                },
+                "fixedAssets": {
+                    "type": "string"
+                },
+                "investments": {
+                    "$ref": "#/definitions/networth.InvestmentsDTO"
+                },
+                "liabilities": {
+                    "type": "string"
+                },
+                "netWorth": {
+                    "type": "string"
+                },
+                "receivables": {
+                    "type": "string"
+                },
+                "trackingMode": {
+                    "type": "string",
+                    "enum": [
+                        "FULL_NET_WORTH",
+                        "CASH_ONLY"
+                    ]
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/currency.Warning"
+                    }
                 }
             }
         },
@@ -5215,6 +5911,20 @@
                 }
             }
         },
+        "transactions.ManualAssetRef": {
+            "type": "object",
+            "properties": {
+                "icon": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
         "transactions.Ref": {
             "type": "object",
             "properties": {
@@ -5281,6 +5991,14 @@
                     "enum": [
                         "BUY",
                         "SELL"
+                    ]
+                },
+                "manualAsset": {
+                    "description": "Settlements of money owed / debt: the manual asset they belong to.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/transactions.ManualAssetRef"
+                        }
                     ]
                 },
                 "note": {

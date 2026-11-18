@@ -765,6 +765,157 @@ definitions:
     - displayName
     - sharePct
     type: object
+  manualassets.AssetDTO:
+    properties:
+      counterpartyName:
+        type: string
+      createdAt:
+        type: string
+      currency:
+        example: IDR
+        type: string
+      currentValue:
+        description: a liability's outstanding amount
+        example: "500"
+        type: string
+      dueDate:
+        example: "2026-12-31"
+        type: string
+      estimatedAnnualChangePct:
+        type: string
+      history:
+        description: detail only, newest first
+        items:
+          $ref: '#/definitions/manualassets.ValueChangeDTO'
+        type: array
+      icon:
+        type: string
+      id:
+        type: string
+      kind:
+        enum:
+        - FIXED_ASSET
+        - RECEIVABLE
+        - LIABILITY
+        type: string
+      name:
+        type: string
+      note:
+        type: string
+      updatedAt:
+        type: string
+    type: object
+  manualassets.ListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/manualassets.AssetDTO'
+        type: array
+      totals:
+        additionalProperties:
+          $ref: '#/definitions/currency.AggregateResult'
+        type: object
+    type: object
+  manualassets.SettleResponse:
+    properties:
+      asset:
+        $ref: '#/definitions/manualassets.AssetDTO'
+      transaction:
+        $ref: '#/definitions/transactions.TransactionDTO'
+    type: object
+  manualassets.ValueChangeDTO:
+    properties:
+      changedAt:
+        type: string
+      newValue:
+        type: string
+      previousValue:
+        type: string
+      reason:
+        enum:
+        - MANUAL
+        - SETTLEMENT
+        type: string
+      transactionId:
+        type: string
+    type: object
+  manualassets.createRequest:
+    properties:
+      counterpartyName:
+        maxLength: 120
+        type: string
+      currency:
+        maxLength: 8
+        type: string
+      currentValue:
+        example: "500"
+        type: string
+      dueDate:
+        example: "2026-12-31"
+        maxLength: 10
+        type: string
+      estimatedAnnualChangePct:
+        type: string
+      icon:
+        maxLength: 64
+        type: string
+      kind:
+        enum:
+        - FIXED_ASSET
+        - RECEIVABLE
+        - LIABILITY
+        type: string
+      name:
+        maxLength: 120
+        minLength: 1
+        type: string
+      note:
+        maxLength: 2000
+        type: string
+    required:
+    - currentValue
+    - kind
+    - name
+    type: object
+  manualassets.settleRequest:
+    properties:
+      amount:
+        example: "200"
+        type: string
+      note:
+        maxLength: 1000
+        type: string
+      occurredAt:
+        type: string
+      walletId:
+        type: string
+    required:
+    - amount
+    - walletId
+    type: object
+  manualassets.updateRequest:
+    properties:
+      counterpartyName:
+        type: string
+      currency:
+        maxLength: 8
+        type: string
+      currentValue:
+        type: string
+      dueDate:
+        type: string
+      estimatedAnnualChangePct:
+        type: string
+      icon:
+        maxLength: 64
+        type: string
+      name:
+        maxLength: 120
+        minLength: 1
+        type: string
+      note:
+        type: string
+    type: object
   marketdata.InstrumentDTO:
     properties:
       instrumentId:
@@ -778,6 +929,47 @@ definitions:
       symbol:
         example: BTC
         type: string
+    type: object
+  networth.InvestmentsDTO:
+    properties:
+      cost:
+        type: string
+      unrealizedPl:
+        type: string
+      unrealizedPlPct:
+        description: a percentage; null when the cost is 0
+        type: string
+      value:
+        type: string
+    type: object
+  networth.SummaryDTO:
+    properties:
+      asOf:
+        type: string
+      cash:
+        type: string
+      currency:
+        example: USD
+        type: string
+      fixedAssets:
+        type: string
+      investments:
+        $ref: '#/definitions/networth.InvestmentsDTO'
+      liabilities:
+        type: string
+      netWorth:
+        type: string
+      receivables:
+        type: string
+      trackingMode:
+        enum:
+        - FULL_NET_WORTH
+        - CASH_ONLY
+        type: string
+      warnings:
+        items:
+          $ref: '#/definitions/currency.Warning'
+        type: array
     type: object
   server.StatusResponse:
     properties:
@@ -920,6 +1112,15 @@ definitions:
       nextCursor:
         type: string
     type: object
+  transactions.ManualAssetRef:
+    properties:
+      icon:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+    type: object
   transactions.Ref:
     properties:
       color:
@@ -966,6 +1167,11 @@ definitions:
         - BUY
         - SELL
         type: string
+      manualAsset:
+        allOf:
+        - $ref: '#/definitions/transactions.ManualAssetRef'
+        description: 'Settlements of money owed / debt: the manual asset they belong
+          to.'
       note:
         type: string
       occurredAt:
@@ -3085,6 +3291,261 @@ paths:
       summary: Get the active invitation (OWNER); invitation is null if none
       tags:
       - spaces
+  /spaces/{spaceId}/manual-assets:
+    get:
+      description: '`totals` converts each kind to the space base currency; items
+        without a usable FX rate are left out and reported in that kind''s `warnings`.'
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: FIXED_ASSET, RECEIVABLE or LIABILITY
+        in: query
+        name: kind
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/manualassets.ListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: List fixed assets, money owed and debt
+      tags:
+      - manual-assets
+    post:
+      consumes:
+      - application/json
+      description: For a liability `currentValue` is the outstanding amount. `estimatedAnnualChangePct`
+        applies to fixed assets only.
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Asset
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/manualassets.createRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/manualassets.AssetDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Create a fixed asset, a receivable (money owed to me) or a liability
+        (debt)
+      tags:
+      - manual-assets
+  /spaces/{spaceId}/manual-assets/{id}:
+    delete:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Delete an asset (soft delete; its settlements are kept for history)
+      tags:
+      - manual-assets
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/manualassets.AssetDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Get an asset with its value history
+      tags:
+      - manual-assets
+    patch:
+      consumes:
+      - application/json
+      description: Changing `currentValue` is recorded in the value history. `counterpartyName`,
+        `dueDate`, `estimatedAnnualChangePct` and `note` accept null to clear. The
+        currency can only change while the asset has no settlements (MANUAL_ASSET_CURRENCY_LOCKED).
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to change
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/manualassets.updateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/manualassets.AssetDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "422":
+          description: MANUAL_ASSET_CURRENCY_LOCKED
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Update an asset
+      tags:
+      - manual-assets
+  /spaces/{spaceId}/manual-assets/{id}/settlements:
+    post:
+      consumes:
+      - application/json
+      description: 'RECEIVABLE: the wallet is credited and the amount owed goes down
+        (money received back). LIABILITY: the wallet is debited and the outstanding
+        amount goes down (a debt payment). Recorded as a TRANSFER transaction tied
+        to the asset. The wallet must use the asset''s currency (422 SETTLEMENT_CURRENCY_MISMATCH)
+        and the amount must not exceed the current value (422 SETTLEMENT_EXCEEDS_BALANCE).
+        Fixed assets cannot be settled.'
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Settlement
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/manualassets.settleRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/manualassets.SettleResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "422":
+          description: SETTLEMENT_EXCEEDS_BALANCE / SETTLEMENT_CURRENCY_MISMATCH /
+            SETTLEMENT_NOT_SUPPORTED
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Settle money owed or pay down a debt through a wallet
+      tags:
+      - manual-assets
+  /spaces/{spaceId}/manual-assets/{id}/settlements/{txnId}:
+    delete:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Settlement transaction ID
+        in: path
+        name: txnId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: 'Reverse a settlement: the wallet effect is undone and the asset''s
+        value goes back up'
+      tags:
+      - manual-assets
   /spaces/{spaceId}/members:
     get:
       parameters:
@@ -3144,6 +3605,35 @@ paths:
       summary: Remove a member (OWNER) or leave the space (self)
       tags:
       - spaces
+  /spaces/{spaceId}/net-worth/summary:
+    get:
+      description: netWorth = cash + investments (my share, including investments
+        shared into this space) + fixedAssets + receivables − liabilities, all converted
+        to the space base currency. Anything without a usable FX rate is left out
+        and reported in `warnings`. In CASH_ONLY tracking mode only `cash` and `netWorth`
+        (= cash) are returned.
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/networth.SummaryDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Net-worth summary
+      tags:
+      - net-worth
   /spaces/{spaceId}/transactions:
     get:
       description: Newest first (occurredAt desc, id desc) with cursor pagination.

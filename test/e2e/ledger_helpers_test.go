@@ -45,3 +45,10 @@ func (s *TestServer) ExpectAllLedgersConsistent() {
 		expectLedgerConsistent(s.t, s, id)
 	}
 }
+
+func mustUUID(t *testing.T, s string) uuid.UUID {
+	t.Helper()
+	id, err := uuid.Parse(s)
+	require.NoError(t, err)
+	return id
+}
