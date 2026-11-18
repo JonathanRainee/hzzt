@@ -23,6 +23,7 @@ import (
 	"github.com/JonathanRainee/hzzt/internal/platform/events"
 	"github.com/JonathanRainee/hzzt/internal/server"
 	"github.com/JonathanRainee/hzzt/internal/spaces"
+	"github.com/JonathanRainee/hzzt/internal/transactions"
 	"github.com/JonathanRainee/hzzt/internal/users"
 	"github.com/JonathanRainee/hzzt/internal/wallets"
 )
@@ -96,11 +97,14 @@ func run() error {
 	}
 	currencySvc := currency.NewService(pool, currency.Options{Provider: fxProvider, Log: log})
 	currencyHandler := currency.NewHandler(currencySvc, authSvc, spacesSvc)
-	categoriesSvc := categories.NewService(pool)
+	categoriesSvc := categories.NewService(pool, currencySvc)
 	categoriesSvc.Subscribe(bus) // space.created → default categories
 	categoriesHandler := categories.NewHandler(categoriesSvc, authSvc, spacesSvc)
 	walletsSvc := wallets.NewService(pool, currencySvc, nil)
 	walletsHandler := wallets.NewHandler(walletsSvc, authSvc, spacesSvc)
+	transactionsSvc := transactions.NewService(pool, currencySvc, nil)
+	categoriesSvc.SetUsageChecker(transactionsSvc.CategoryInUse) // locks a category's type once used
+	transactionsHandler := transactions.NewHandler(transactionsSvc, authSvc, spacesSvc)
 	stopJobs, err := currencySvc.StartJobs(ctx, log)
 	if err != nil {
 		return err
@@ -109,7 +113,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           server.NewRouter(cfg, log, sqlc.New(pool), authHandler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount, walletsHandler.Mount),
+		Handler:           server.NewRouter(cfg, log, sqlc.New(pool), authHandler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount, walletsHandler.Mount, transactionsHandler.Mount),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,

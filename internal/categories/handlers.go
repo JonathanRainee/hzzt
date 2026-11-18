@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -14,9 +15,11 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/JonathanRainee/hzzt/internal/auth"
+	"github.com/JonathanRainee/hzzt/internal/currency"
 	"github.com/JonathanRainee/hzzt/internal/db/sqlc"
 	"github.com/JonathanRainee/hzzt/internal/platform/apperror"
 	"github.com/JonathanRainee/hzzt/internal/platform/httpx"
+	"github.com/JonathanRainee/hzzt/internal/platform/period"
 	"github.com/JonathanRainee/hzzt/internal/spaces"
 )
 
@@ -62,6 +65,19 @@ type CategoryDTO struct {
 	BudgetCurrency *string          `json:"budgetCurrency" example:"IDR"` // the space's base currency when a budget is set
 	SortOrder      int              `json:"sortOrder"`
 	CreatedAt      time.Time        `json:"createdAt"`
+	Stats          *StatsDTO        `json:"stats,omitempty"` // only with includeStats=true
+}
+
+// StatsDTO is a category's usage in the requested period, in the space base currency.
+// Expense categories fill spent (and budgetRemaining / budgetUsedPct when a budget is set);
+// income categories fill received.
+type StatsDTO struct {
+	Currency        string             `json:"currency" example:"IDR"`
+	Spent           *decimal.Decimal   `json:"spent,omitempty" swaggertype:"string"`
+	BudgetRemaining *decimal.Decimal   `json:"budgetRemaining,omitempty" swaggertype:"string"`
+	BudgetUsedPct   *decimal.Decimal   `json:"budgetUsedPct,omitempty" swaggertype:"string"`
+	Received        *decimal.Decimal   `json:"received,omitempty" swaggertype:"string"`
+	Warnings        []currency.Warning `json:"warnings,omitempty"`
 }
 
 func toDTO(c sqlc.Category, baseCurrency string) CategoryDTO {
@@ -206,16 +222,21 @@ func listType(r *http.Request) (string, error) {
 
 // list godoc
 //
-//	@Summary	List categories ordered by sortOrder
-//	@Tags		categories
-//	@Security	BearerAuth
-//	@Produce	json
-//	@Param		spaceId	path		string	true	"Space ID"
-//	@Param		type	query		string	false	"EXPENSE or INCOME"
-//	@Success	200		{array}		CategoryDTO
-//	@Failure	400		{object}	httpx.ErrorEnvelope
-//	@Failure	404		{object}	httpx.ErrorEnvelope
-//	@Router		/spaces/{spaceId}/categories [get]
+//	@Summary		List categories ordered by sortOrder
+//	@Description	With includeStats=true each category carries `stats` for the period (default THIS_PERIOD): expense → spent, budgetRemaining, budgetUsedPct; income → received, all in the space base currency. `period` is a preset (TODAY, THIS_WEEK, THIS_PERIOD, LAST_7_DAYS, ..., ALL_TIME) or use `from`/`to` (YYYY-MM-DD, inclusive).
+//	@Tags			categories
+//	@Security		BearerAuth
+//	@Produce		json
+//	@Param			spaceId			path		string	true	"Space ID"
+//	@Param			type			query		string	false	"EXPENSE or INCOME"
+//	@Param			includeStats	query		bool	false	"Include usage stats"
+//	@Param			period			query		string	false	"Period preset for stats"
+//	@Param			from			query		string	false	"Start date for stats (YYYY-MM-DD)"
+//	@Param			to				query		string	false	"End date for stats, inclusive (YYYY-MM-DD)"
+//	@Success		200				{array}		CategoryDTO
+//	@Failure		400				{object}	httpx.ErrorEnvelope
+//	@Failure		404				{object}	httpx.ErrorEnvelope
+//	@Router			/spaces/{spaceId}/categories [get]
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	typ, err := listType(r)
 	if err != nil {
@@ -223,12 +244,72 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sp, _ := spaces.SpaceFromContext(r.Context())
-	cs, err := h.svc.List(r.Context(), sp.ID, typ)
+
+	withStats := false
+	if v := r.URL.Query().Get("includeStats"); v != "" {
+		b, perr := strconv.ParseBool(v)
+		if perr != nil {
+			httpx.WriteError(w, r, apperror.Validation("Validation failed", map[string]any{"includeStats": "must be true or false"}))
+			return
+		}
+		withStats = b
+	}
+	if !withStats {
+		cs, err := h.svc.List(r.Context(), sp.ID, typ)
+		if err != nil {
+			httpx.WriteError(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, toDTOs(cs, sp.BaseCurrency))
+		return
+	}
+
+	user, _ := auth.UserFromContext(r.Context())
+	rng, err := statsRange(r, user, sp, h.svc.now())
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toDTOs(cs, sp.BaseCurrency))
+	rows, err := h.svc.ListWithStats(r.Context(), sp.ID, typ, rng)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	out := make([]CategoryDTO, 0, len(rows))
+	for _, row := range rows {
+		d := toDTO(row.Category, sp.BaseCurrency)
+		d.Stats = &StatsDTO{
+			Currency: BaseCurrencyOf(sp), Spent: row.Stats.Spent, BudgetRemaining: row.Stats.BudgetRemaining,
+			BudgetUsedPct: row.Stats.BudgetUsedPct, Received: row.Stats.Received, Warnings: row.Stats.Warnings,
+		}
+		out = append(out, d)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// statsRange resolves period (default THIS_PERIOD) or from/to in the user's timezone.
+func statsRange(r *http.Request, user sqlc.User, sp sqlc.Space, now time.Time) (period.Range, error) {
+	loc, err := time.LoadLocation(user.Timezone)
+	if err != nil {
+		loc = time.UTC
+	}
+	v := r.URL.Query()
+	if from, to := v.Get("from"), v.Get("to"); from != "" || to != "" {
+		rng, err := period.Custom(from, to, loc)
+		if err != nil {
+			return rng, apperror.Validation("Validation failed", map[string]any{"from": err.Error()})
+		}
+		return rng, nil
+	}
+	preset := v.Get("period")
+	if preset == "" {
+		preset = period.ThisPeriod
+	}
+	rng, err := period.Resolve(preset, period.Opts{Location: loc, BudgetStartDay: int(sp.BudgetPeriodStartDay), Now: now})
+	if err != nil {
+		return rng, apperror.Validation("Validation failed", map[string]any{"period": "must be one of: " + strings.Join(period.Presets, " ")})
+	}
+	return rng, nil
 }
 
 // create godoc

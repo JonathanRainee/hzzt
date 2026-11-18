@@ -33,6 +33,7 @@ import (
 	"github.com/JonathanRainee/hzzt/internal/platform/httpx"
 	"github.com/JonathanRainee/hzzt/internal/server"
 	"github.com/JonathanRainee/hzzt/internal/spaces"
+	"github.com/JonathanRainee/hzzt/internal/transactions"
 	"github.com/JonathanRainee/hzzt/internal/users"
 	"github.com/JonathanRainee/hzzt/internal/wallets"
 )
@@ -151,12 +152,16 @@ func newTestServer(t *testing.T, limits auth.Limits, userLimits users.Limits) *T
 	fx := &FakeFX{Set: defaultRates(clock)}
 	currencySvc := currency.NewService(tx, currency.Options{Provider: fx, Log: log, Now: clock.Now})
 	currencyHandler := currency.NewHandler(currencySvc, svc, spacesSvc)
-	categoriesSvc := categories.NewService(tx)
+	categoriesSvc := categories.NewService(tx, currencySvc)
+	categoriesSvc.SetClock(clock.Now)
 	categoriesSvc.Subscribe(bus)
 	categoriesHandler := categories.NewHandler(categoriesSvc, svc, spacesSvc)
 	walletsSvc := wallets.NewService(tx, currencySvc, clock.Now)
 	walletsHandler := wallets.NewHandler(walletsSvc, svc, spacesSvc)
-	srv := httptest.NewServer(server.NewRouter(cfg, log, sqlc.New(tx), handler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount, walletsHandler.Mount))
+	transactionsSvc := transactions.NewService(tx, currencySvc, clock.Now)
+	categoriesSvc.SetUsageChecker(transactionsSvc.CategoryInUse)
+	transactionsHandler := transactions.NewHandler(transactionsSvc, svc, spacesSvc)
+	srv := httptest.NewServer(server.NewRouter(cfg, log, sqlc.New(tx), handler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount, walletsHandler.Mount, transactionsHandler.Mount))
 	t.Cleanup(srv.Close)
 
 	ts := &TestServer{Server: srv, Tx: tx, Email: mail, Events: bus, Auth: svc, Clock: clock, FX: fx, Currency: currencySvc, Categories: categoriesSvc, t: t}
@@ -234,6 +239,13 @@ func (c *testClock) Now() time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return time.Now().Add(c.offset)
+}
+
+// Set makes "now" equal t (give or take the test's own runtime).
+func (c *testClock) Set(t time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.offset = time.Until(t)
 }
 
 // Advance moves the clock forward.

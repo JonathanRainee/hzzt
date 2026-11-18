@@ -13,6 +13,69 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+const categoryInUse = `-- name: CategoryInUse :one
+SELECT EXISTS (SELECT 1 FROM transactions WHERE space_id = $1 AND category_id = $2)
+`
+
+type CategoryInUseParams struct {
+	SpaceID    uuid.UUID     `json:"space_id"`
+	CategoryID uuid.NullUUID `json:"category_id"`
+}
+
+func (q *Queries) CategoryInUse(ctx context.Context, arg CategoryInUseParams) (bool, error) {
+	row := q.db.QueryRow(ctx, categoryInUse, arg.SpaceID, arg.CategoryID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const categoryStats = `-- name: CategoryStats :many
+SELECT t.category_id, t.type, t.currency, sum(t.amount)::numeric(38,8) AS total
+FROM transactions t
+WHERE t.space_id = $1 AND t.category_id IS NOT NULL AND t.type IN ('INCOME', 'EXPENSE')
+  AND ($2::timestamptz IS NULL OR t.occurred_at >= $2)
+  AND ($3::timestamptz IS NULL OR t.occurred_at < $3)
+GROUP BY t.category_id, t.type, t.currency
+`
+
+type CategoryStatsParams struct {
+	SpaceID uuid.UUID  `json:"space_id"`
+	FromTs  *time.Time `json:"from_ts"`
+	ToTs    *time.Time `json:"to_ts"`
+}
+
+type CategoryStatsRow struct {
+	CategoryID uuid.NullUUID   `json:"category_id"`
+	Type       string          `json:"type"`
+	Currency   string          `json:"currency"`
+	Total      decimal.Decimal `json:"total"`
+}
+
+func (q *Queries) CategoryStats(ctx context.Context, arg CategoryStatsParams) ([]CategoryStatsRow, error) {
+	rows, err := q.db.Query(ctx, categoryStats, arg.SpaceID, arg.FromTs, arg.ToTs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CategoryStatsRow{}
+	for rows.Next() {
+		var i CategoryStatsRow
+		if err := rows.Scan(
+			&i.CategoryID,
+			&i.Type,
+			&i.Currency,
+			&i.Total,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createTransaction = `-- name: CreateTransaction :one
 INSERT INTO transactions (
     space_id, type, direction, title, note, amount, currency, wallet_id, category_id,
@@ -63,6 +126,497 @@ func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionPa
 		arg.ToCurrency,
 		arg.FxRate,
 	)
+	var i Transaction
+	err := row.Scan(
+		&i.ID,
+		&i.SpaceID,
+		&i.Type,
+		&i.Direction,
+		&i.Title,
+		&i.Note,
+		&i.Amount,
+		&i.Currency,
+		&i.WalletID,
+		&i.CategoryID,
+		&i.OccurredAt,
+		&i.CreatedByID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ToWalletID,
+		&i.ToAmount,
+		&i.ToCurrency,
+		&i.FxRate,
+		&i.InvestmentID,
+		&i.InvestmentAction,
+		&i.Quantity,
+		&i.UnitPrice,
+		&i.Fee,
+		&i.RealizedPl,
+		&i.PositionBefore,
+		&i.PositionAfter,
+		&i.ManualAssetID,
+	)
+	return i, err
+}
+
+const dailySummaryRows = `-- name: DailySummaryRows :many
+SELECT (t.occurred_at AT TIME ZONE $2::text)::date AS day,
+       t.type, t.currency,
+       sum(t.amount)::numeric(38,8) AS total,
+       count(*)::int AS cnt
+FROM transactions t
+LEFT JOIN wallets w     ON w.id = t.wallet_id
+LEFT JOIN wallets tw    ON tw.id = t.to_wallet_id
+LEFT JOIN categories c  ON c.id = t.category_id
+WHERE t.space_id = $1
+  AND ($3::timestamptz IS NULL OR t.occurred_at >= $3)
+  AND ($4::timestamptz IS NULL OR t.occurred_at < $4)
+  AND ($5::text[] IS NULL OR t.type = ANY($5::text[]))
+  AND ($6::uuid[] IS NULL OR t.category_id = ANY($6::uuid[]))
+  AND ($7::uuid[] IS NULL
+       OR t.wallet_id = ANY($7::uuid[])
+       OR t.to_wallet_id = ANY($7::uuid[]))
+  AND ($8::text IS NULL
+       OR t.title ILIKE $8 OR t.note ILIKE $8
+       OR c.name ILIKE $8 OR w.name ILIKE $8 OR tw.name ILIKE $8)
+GROUP BY 1, 2, 3
+ORDER BY 1 DESC
+`
+
+type DailySummaryRowsParams struct {
+	SpaceID     uuid.UUID   `json:"space_id"`
+	Tz          string      `json:"tz"`
+	FromTs      *time.Time  `json:"from_ts"`
+	ToTs        *time.Time  `json:"to_ts"`
+	Types       []string    `json:"types"`
+	CategoryIds []uuid.UUID `json:"category_ids"`
+	WalletIds   []uuid.UUID `json:"wallet_ids"`
+	Q           *string     `json:"q"`
+}
+
+type DailySummaryRowsRow struct {
+	Day      time.Time       `json:"day"`
+	Type     string          `json:"type"`
+	Currency string          `json:"currency"`
+	Total    decimal.Decimal `json:"total"`
+	Cnt      int32           `json:"cnt"`
+}
+
+func (q *Queries) DailySummaryRows(ctx context.Context, arg DailySummaryRowsParams) ([]DailySummaryRowsRow, error) {
+	rows, err := q.db.Query(ctx, dailySummaryRows,
+		arg.SpaceID,
+		arg.Tz,
+		arg.FromTs,
+		arg.ToTs,
+		arg.Types,
+		arg.CategoryIds,
+		arg.WalletIds,
+		arg.Q,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []DailySummaryRowsRow{}
+	for rows.Next() {
+		var i DailySummaryRowsRow
+		if err := rows.Scan(
+			&i.Day,
+			&i.Type,
+			&i.Currency,
+			&i.Total,
+			&i.Cnt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const deleteTransaction = `-- name: DeleteTransaction :execrows
+DELETE FROM transactions WHERE id = $1 AND space_id = $2
+`
+
+type DeleteTransactionParams struct {
+	ID      uuid.UUID `json:"id"`
+	SpaceID uuid.UUID `json:"space_id"`
+}
+
+func (q *Queries) DeleteTransaction(ctx context.Context, arg DeleteTransactionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteTransaction, arg.ID, arg.SpaceID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const getTransactionDetail = `-- name: GetTransactionDetail :one
+SELECT t.id, t.space_id, t.type, t.direction, t.title, t.note, t.amount, t.currency, t.wallet_id, t.category_id, t.occurred_at, t.created_by_id, t.created_at, t.updated_at, t.to_wallet_id, t.to_amount, t.to_currency, t.fx_rate, t.investment_id, t.investment_action, t.quantity, t.unit_price, t.fee, t.realized_pl, t.position_before, t.position_after, t.manual_asset_id,
+       w.name  AS wallet_name,  w.icon  AS wallet_icon,
+       tw.name AS to_wallet_name, tw.icon AS to_wallet_icon,
+       c.name  AS category_name, c.icon AS category_icon, c.color AS category_color
+FROM transactions t
+LEFT JOIN wallets w     ON w.id = t.wallet_id
+LEFT JOIN wallets tw    ON tw.id = t.to_wallet_id
+LEFT JOIN categories c  ON c.id = t.category_id
+WHERE t.id = $1 AND t.space_id = $2
+`
+
+type GetTransactionDetailParams struct {
+	ID      uuid.UUID `json:"id"`
+	SpaceID uuid.UUID `json:"space_id"`
+}
+
+type GetTransactionDetailRow struct {
+	ID               uuid.UUID           `json:"id"`
+	SpaceID          uuid.UUID           `json:"space_id"`
+	Type             string              `json:"type"`
+	Direction        *string             `json:"direction"`
+	Title            *string             `json:"title"`
+	Note             *string             `json:"note"`
+	Amount           decimal.Decimal     `json:"amount"`
+	Currency         string              `json:"currency"`
+	WalletID         uuid.NullUUID       `json:"wallet_id"`
+	CategoryID       uuid.NullUUID       `json:"category_id"`
+	OccurredAt       time.Time           `json:"occurred_at"`
+	CreatedByID      uuid.UUID           `json:"created_by_id"`
+	CreatedAt        time.Time           `json:"created_at"`
+	UpdatedAt        time.Time           `json:"updated_at"`
+	ToWalletID       uuid.NullUUID       `json:"to_wallet_id"`
+	ToAmount         decimal.NullDecimal `json:"to_amount"`
+	ToCurrency       *string             `json:"to_currency"`
+	FxRate           decimal.NullDecimal `json:"fx_rate"`
+	InvestmentID     uuid.NullUUID       `json:"investment_id"`
+	InvestmentAction *string             `json:"investment_action"`
+	Quantity         decimal.NullDecimal `json:"quantity"`
+	UnitPrice        decimal.NullDecimal `json:"unit_price"`
+	Fee              decimal.NullDecimal `json:"fee"`
+	RealizedPl       decimal.NullDecimal `json:"realized_pl"`
+	PositionBefore   []byte              `json:"position_before"`
+	PositionAfter    []byte              `json:"position_after"`
+	ManualAssetID    uuid.NullUUID       `json:"manual_asset_id"`
+	WalletName       *string             `json:"wallet_name"`
+	WalletIcon       *string             `json:"wallet_icon"`
+	ToWalletName     *string             `json:"to_wallet_name"`
+	ToWalletIcon     *string             `json:"to_wallet_icon"`
+	CategoryName     *string             `json:"category_name"`
+	CategoryIcon     *string             `json:"category_icon"`
+	CategoryColor    *string             `json:"category_color"`
+}
+
+func (q *Queries) GetTransactionDetail(ctx context.Context, arg GetTransactionDetailParams) (GetTransactionDetailRow, error) {
+	row := q.db.QueryRow(ctx, getTransactionDetail, arg.ID, arg.SpaceID)
+	var i GetTransactionDetailRow
+	err := row.Scan(
+		&i.ID,
+		&i.SpaceID,
+		&i.Type,
+		&i.Direction,
+		&i.Title,
+		&i.Note,
+		&i.Amount,
+		&i.Currency,
+		&i.WalletID,
+		&i.CategoryID,
+		&i.OccurredAt,
+		&i.CreatedByID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ToWalletID,
+		&i.ToAmount,
+		&i.ToCurrency,
+		&i.FxRate,
+		&i.InvestmentID,
+		&i.InvestmentAction,
+		&i.Quantity,
+		&i.UnitPrice,
+		&i.Fee,
+		&i.RealizedPl,
+		&i.PositionBefore,
+		&i.PositionAfter,
+		&i.ManualAssetID,
+		&i.WalletName,
+		&i.WalletIcon,
+		&i.ToWalletName,
+		&i.ToWalletIcon,
+		&i.CategoryName,
+		&i.CategoryIcon,
+		&i.CategoryColor,
+	)
+	return i, err
+}
+
+const getTransactionForUpdate = `-- name: GetTransactionForUpdate :one
+SELECT id, space_id, type, direction, title, note, amount, currency, wallet_id, category_id, occurred_at, created_by_id, created_at, updated_at, to_wallet_id, to_amount, to_currency, fx_rate, investment_id, investment_action, quantity, unit_price, fee, realized_pl, position_before, position_after, manual_asset_id FROM transactions WHERE id = $1 AND space_id = $2 FOR UPDATE
+`
+
+type GetTransactionForUpdateParams struct {
+	ID      uuid.UUID `json:"id"`
+	SpaceID uuid.UUID `json:"space_id"`
+}
+
+func (q *Queries) GetTransactionForUpdate(ctx context.Context, arg GetTransactionForUpdateParams) (Transaction, error) {
+	row := q.db.QueryRow(ctx, getTransactionForUpdate, arg.ID, arg.SpaceID)
+	var i Transaction
+	err := row.Scan(
+		&i.ID,
+		&i.SpaceID,
+		&i.Type,
+		&i.Direction,
+		&i.Title,
+		&i.Note,
+		&i.Amount,
+		&i.Currency,
+		&i.WalletID,
+		&i.CategoryID,
+		&i.OccurredAt,
+		&i.CreatedByID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ToWalletID,
+		&i.ToAmount,
+		&i.ToCurrency,
+		&i.FxRate,
+		&i.InvestmentID,
+		&i.InvestmentAction,
+		&i.Quantity,
+		&i.UnitPrice,
+		&i.Fee,
+		&i.RealizedPl,
+		&i.PositionBefore,
+		&i.PositionAfter,
+		&i.ManualAssetID,
+	)
+	return i, err
+}
+
+const listTransactions = `-- name: ListTransactions :many
+SELECT t.id, t.space_id, t.type, t.direction, t.title, t.note, t.amount, t.currency, t.wallet_id, t.category_id, t.occurred_at, t.created_by_id, t.created_at, t.updated_at, t.to_wallet_id, t.to_amount, t.to_currency, t.fx_rate, t.investment_id, t.investment_action, t.quantity, t.unit_price, t.fee, t.realized_pl, t.position_before, t.position_after, t.manual_asset_id,
+       w.name  AS wallet_name,  w.icon  AS wallet_icon,
+       tw.name AS to_wallet_name, tw.icon AS to_wallet_icon,
+       c.name  AS category_name, c.icon AS category_icon, c.color AS category_color
+FROM transactions t
+LEFT JOIN wallets w     ON w.id = t.wallet_id
+LEFT JOIN wallets tw    ON tw.id = t.to_wallet_id
+LEFT JOIN categories c  ON c.id = t.category_id
+WHERE t.space_id = $1
+  AND ($2::timestamptz IS NULL OR t.occurred_at >= $2)
+  AND ($3::timestamptz IS NULL OR t.occurred_at < $3)
+  AND ($4::text[] IS NULL OR t.type = ANY($4::text[]))
+  AND ($5::uuid[] IS NULL OR t.category_id = ANY($5::uuid[]))
+  AND ($6::uuid[] IS NULL
+       OR t.wallet_id = ANY($6::uuid[])
+       OR t.to_wallet_id = ANY($6::uuid[]))
+  AND ($7::text IS NULL
+       OR t.title ILIKE $7 OR t.note ILIKE $7
+       OR c.name ILIKE $7 OR w.name ILIKE $7 OR tw.name ILIKE $7)
+  AND ($8::timestamptz IS NULL
+       OR (t.occurred_at, t.id) < ($8::timestamptz, $9::uuid))
+ORDER BY t.occurred_at DESC, t.id DESC
+LIMIT $10::int
+`
+
+type ListTransactionsParams struct {
+	SpaceID     uuid.UUID     `json:"space_id"`
+	FromTs      *time.Time    `json:"from_ts"`
+	ToTs        *time.Time    `json:"to_ts"`
+	Types       []string      `json:"types"`
+	CategoryIds []uuid.UUID   `json:"category_ids"`
+	WalletIds   []uuid.UUID   `json:"wallet_ids"`
+	Q           *string       `json:"q"`
+	CursorAt    *time.Time    `json:"cursor_at"`
+	CursorID    uuid.NullUUID `json:"cursor_id"`
+	RowLimit    int32         `json:"row_limit"`
+}
+
+type ListTransactionsRow struct {
+	ID               uuid.UUID           `json:"id"`
+	SpaceID          uuid.UUID           `json:"space_id"`
+	Type             string              `json:"type"`
+	Direction        *string             `json:"direction"`
+	Title            *string             `json:"title"`
+	Note             *string             `json:"note"`
+	Amount           decimal.Decimal     `json:"amount"`
+	Currency         string              `json:"currency"`
+	WalletID         uuid.NullUUID       `json:"wallet_id"`
+	CategoryID       uuid.NullUUID       `json:"category_id"`
+	OccurredAt       time.Time           `json:"occurred_at"`
+	CreatedByID      uuid.UUID           `json:"created_by_id"`
+	CreatedAt        time.Time           `json:"created_at"`
+	UpdatedAt        time.Time           `json:"updated_at"`
+	ToWalletID       uuid.NullUUID       `json:"to_wallet_id"`
+	ToAmount         decimal.NullDecimal `json:"to_amount"`
+	ToCurrency       *string             `json:"to_currency"`
+	FxRate           decimal.NullDecimal `json:"fx_rate"`
+	InvestmentID     uuid.NullUUID       `json:"investment_id"`
+	InvestmentAction *string             `json:"investment_action"`
+	Quantity         decimal.NullDecimal `json:"quantity"`
+	UnitPrice        decimal.NullDecimal `json:"unit_price"`
+	Fee              decimal.NullDecimal `json:"fee"`
+	RealizedPl       decimal.NullDecimal `json:"realized_pl"`
+	PositionBefore   []byte              `json:"position_before"`
+	PositionAfter    []byte              `json:"position_after"`
+	ManualAssetID    uuid.NullUUID       `json:"manual_asset_id"`
+	WalletName       *string             `json:"wallet_name"`
+	WalletIcon       *string             `json:"wallet_icon"`
+	ToWalletName     *string             `json:"to_wallet_name"`
+	ToWalletIcon     *string             `json:"to_wallet_icon"`
+	CategoryName     *string             `json:"category_name"`
+	CategoryIcon     *string             `json:"category_icon"`
+	CategoryColor    *string             `json:"category_color"`
+}
+
+func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsParams) ([]ListTransactionsRow, error) {
+	rows, err := q.db.Query(ctx, listTransactions,
+		arg.SpaceID,
+		arg.FromTs,
+		arg.ToTs,
+		arg.Types,
+		arg.CategoryIds,
+		arg.WalletIds,
+		arg.Q,
+		arg.CursorAt,
+		arg.CursorID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTransactionsRow{}
+	for rows.Next() {
+		var i ListTransactionsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.SpaceID,
+			&i.Type,
+			&i.Direction,
+			&i.Title,
+			&i.Note,
+			&i.Amount,
+			&i.Currency,
+			&i.WalletID,
+			&i.CategoryID,
+			&i.OccurredAt,
+			&i.CreatedByID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ToWalletID,
+			&i.ToAmount,
+			&i.ToCurrency,
+			&i.FxRate,
+			&i.InvestmentID,
+			&i.InvestmentAction,
+			&i.Quantity,
+			&i.UnitPrice,
+			&i.Fee,
+			&i.RealizedPl,
+			&i.PositionBefore,
+			&i.PositionAfter,
+			&i.ManualAssetID,
+			&i.WalletName,
+			&i.WalletIcon,
+			&i.ToWalletName,
+			&i.ToWalletIcon,
+			&i.CategoryName,
+			&i.CategoryIcon,
+			&i.CategoryColor,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateIncomeExpense = `-- name: UpdateIncomeExpense :one
+UPDATE transactions SET
+    type = $3, wallet_id = $4, category_id = $8, amount = $5, currency = $6,
+    title = $9, note = $10, occurred_at = $7, updated_at = now()
+WHERE id = $1 AND space_id = $2
+RETURNING id, space_id, type, direction, title, note, amount, currency, wallet_id, category_id, occurred_at, created_by_id, created_at, updated_at, to_wallet_id, to_amount, to_currency, fx_rate, investment_id, investment_action, quantity, unit_price, fee, realized_pl, position_before, position_after, manual_asset_id
+`
+
+type UpdateIncomeExpenseParams struct {
+	ID         uuid.UUID       `json:"id"`
+	SpaceID    uuid.UUID       `json:"space_id"`
+	Type       string          `json:"type"`
+	WalletID   uuid.NullUUID   `json:"wallet_id"`
+	Amount     decimal.Decimal `json:"amount"`
+	Currency   string          `json:"currency"`
+	OccurredAt time.Time       `json:"occurred_at"`
+	CategoryID uuid.NullUUID   `json:"category_id"`
+	Title      *string         `json:"title"`
+	Note       *string         `json:"note"`
+}
+
+func (q *Queries) UpdateIncomeExpense(ctx context.Context, arg UpdateIncomeExpenseParams) (Transaction, error) {
+	row := q.db.QueryRow(ctx, updateIncomeExpense,
+		arg.ID,
+		arg.SpaceID,
+		arg.Type,
+		arg.WalletID,
+		arg.Amount,
+		arg.Currency,
+		arg.OccurredAt,
+		arg.CategoryID,
+		arg.Title,
+		arg.Note,
+	)
+	var i Transaction
+	err := row.Scan(
+		&i.ID,
+		&i.SpaceID,
+		&i.Type,
+		&i.Direction,
+		&i.Title,
+		&i.Note,
+		&i.Amount,
+		&i.Currency,
+		&i.WalletID,
+		&i.CategoryID,
+		&i.OccurredAt,
+		&i.CreatedByID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ToWalletID,
+		&i.ToAmount,
+		&i.ToCurrency,
+		&i.FxRate,
+		&i.InvestmentID,
+		&i.InvestmentAction,
+		&i.Quantity,
+		&i.UnitPrice,
+		&i.Fee,
+		&i.RealizedPl,
+		&i.PositionBefore,
+		&i.PositionAfter,
+		&i.ManualAssetID,
+	)
+	return i, err
+}
+
+const updateTransactionNote = `-- name: UpdateTransactionNote :one
+UPDATE transactions SET note = $3, updated_at = now()
+WHERE id = $1 AND space_id = $2
+RETURNING id, space_id, type, direction, title, note, amount, currency, wallet_id, category_id, occurred_at, created_by_id, created_at, updated_at, to_wallet_id, to_amount, to_currency, fx_rate, investment_id, investment_action, quantity, unit_price, fee, realized_pl, position_before, position_after, manual_asset_id
+`
+
+type UpdateTransactionNoteParams struct {
+	ID      uuid.UUID `json:"id"`
+	SpaceID uuid.UUID `json:"space_id"`
+	Note    *string   `json:"note"`
+}
+
+func (q *Queries) UpdateTransactionNote(ctx context.Context, arg UpdateTransactionNoteParams) (Transaction, error) {
+	row := q.db.QueryRow(ctx, updateTransactionNote, arg.ID, arg.SpaceID, arg.Note)
 	var i Transaction
 	err := row.Scan(
 		&i.ID,
