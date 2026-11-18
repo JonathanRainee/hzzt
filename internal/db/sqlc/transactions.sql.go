@@ -649,3 +649,73 @@ func (q *Queries) UpdateTransactionNote(ctx context.Context, arg UpdateTransacti
 	)
 	return i, err
 }
+
+const updateTransfer = `-- name: UpdateTransfer :one
+UPDATE transactions SET
+    wallet_id = $3, to_wallet_id = $4, amount = $5, currency = $6,
+    to_amount = $7, to_currency = $8, fx_rate = $9, occurred_at = $10,
+    note = $11, updated_at = now()
+WHERE id = $1 AND space_id = $2 AND type = 'TRANSFER'
+RETURNING id, space_id, type, direction, title, note, amount, currency, wallet_id, category_id, occurred_at, created_by_id, created_at, updated_at, to_wallet_id, to_amount, to_currency, fx_rate, investment_id, investment_action, quantity, unit_price, fee, realized_pl, position_before, position_after, manual_asset_id
+`
+
+type UpdateTransferParams struct {
+	ID         uuid.UUID           `json:"id"`
+	SpaceID    uuid.UUID           `json:"space_id"`
+	WalletID   uuid.NullUUID       `json:"wallet_id"`
+	ToWalletID uuid.NullUUID       `json:"to_wallet_id"`
+	Amount     decimal.Decimal     `json:"amount"`
+	Currency   string              `json:"currency"`
+	ToAmount   decimal.NullDecimal `json:"to_amount"`
+	ToCurrency *string             `json:"to_currency"`
+	FxRate     decimal.NullDecimal `json:"fx_rate"`
+	OccurredAt time.Time           `json:"occurred_at"`
+	Note       *string             `json:"note"`
+}
+
+func (q *Queries) UpdateTransfer(ctx context.Context, arg UpdateTransferParams) (Transaction, error) {
+	row := q.db.QueryRow(ctx, updateTransfer,
+		arg.ID,
+		arg.SpaceID,
+		arg.WalletID,
+		arg.ToWalletID,
+		arg.Amount,
+		arg.Currency,
+		arg.ToAmount,
+		arg.ToCurrency,
+		arg.FxRate,
+		arg.OccurredAt,
+		arg.Note,
+	)
+	var i Transaction
+	err := row.Scan(
+		&i.ID,
+		&i.SpaceID,
+		&i.Type,
+		&i.Direction,
+		&i.Title,
+		&i.Note,
+		&i.Amount,
+		&i.Currency,
+		&i.WalletID,
+		&i.CategoryID,
+		&i.OccurredAt,
+		&i.CreatedByID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ToWalletID,
+		&i.ToAmount,
+		&i.ToCurrency,
+		&i.FxRate,
+		&i.InvestmentID,
+		&i.InvestmentAction,
+		&i.Quantity,
+		&i.UnitPrice,
+		&i.Fee,
+		&i.RealizedPl,
+		&i.PositionBefore,
+		&i.PositionAfter,
+		&i.ManualAssetID,
+	)
+	return i, err
+}
