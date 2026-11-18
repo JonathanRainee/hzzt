@@ -271,7 +271,7 @@ Full field lists are defined in each phase. This is the map.
 |---|---|---|---|---|
 | P0 | Environment & repository setup (WSL, Docker, Postgres, Go, GitHub) | — | M0 Dev environment | Ready |
 | P1 | Project foundation | P0 | M1 Foundation & Auth | Done |
-| P2 | Authentication | P1 | M1 | Backlog |
+| P2 | Authentication | P1 | M1 | Done |
 | P3 | Users, profile & spaces | P2 | M1 | Backlog |
 | P4 | Preferences & app lock | P3 | M1 | Backlog |
 | P5 | Currency & FX | P3 | M2 Money core | Backlog |
@@ -1069,6 +1069,7 @@ DELIVERABLES (report back)
 | INVALID_CREDENTIALS | 401 | P2 |
 | REFRESH_TOKEN_REUSED / REFRESH_TOKEN_INVALID | 401 | P2 |
 | RESET_TOKEN_INVALID | 422 | P2 |
+| INVALID_CURRENT_PASSWORD | 422 | P2 |
 | OWNERSHIP_TRANSFER_REQUIRED, LAST_SPACE, OWNER_CANNOT_LEAVE | 422 | P3 |
 | INVITATION_INVALID, INVITATION_EXPIRED, ALREADY_A_MEMBER, SPACE_MEMBER_LIMIT | 422/409 | P3 |
 | APP_LOCK_TEMPORARILY_LOCKED, APP_LOCK_NOT_ENABLED | 429/422 | P4 |
