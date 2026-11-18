@@ -3,6 +3,7 @@ package investments
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/JonathanRainee/hzzt/internal/auth"
+	"github.com/JonathanRainee/hzzt/internal/db/sqlc"
 	"github.com/JonathanRainee/hzzt/internal/platform/apperror"
 	"github.com/JonathanRainee/hzzt/internal/platform/httpx"
 	"github.com/JonathanRainee/hzzt/internal/spaces"
@@ -54,6 +56,19 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Patch(p+"/{id}", h.update)
 		r.Delete(p+"/{id}", h.delete)
 		r.Post(p+"/{id}/refresh-price", h.refreshPrice)
+		r.Get(p+"/{id}/participants", h.participants)
+		r.Put(p+"/{id}/participants", h.setParticipants)
+		r.Delete(p+"/{id}/participants", h.stopSharing)
+		r.Get(p+"/{id}/share-changes", h.shareChanges)
+	})
+
+	// Full paths, not r.Route("/me"): the users handler already owns that mount point.
+	r.Group(func(r chi.Router) {
+		r.Use(h.auth.Middleware)
+		r.Get("/me/shared-investment-invitations", h.invitations)
+		r.Post("/me/shared-investment-invitations/{participantId}/accept", h.acceptInvitation)
+		r.Post("/me/shared-investment-invitations/{participantId}/decline", h.declineInvitation)
+		r.Post("/me/shared-investments/{participantId}/leave", h.leave)
 	})
 }
 
@@ -77,10 +92,43 @@ type InvestmentDTO struct {
 	Details                  any              `json:"details" swaggertype:"object"`
 	InstrumentID             *uuid.UUID       `json:"instrumentId"`
 	IsShared                 bool             `json:"isShared"`
-	Valuation                Valuation        `json:"valuation"`
-	RealizedPL               RealizedPLDTO    `json:"realizedPl"`
-	CreatedAt                time.Time        `json:"createdAt"`
-	UpdatedAt                time.Time        `json:"updatedAt"`
+	// Valuation is the viewer's part: the whole investment unless it is shared.
+	Valuation Valuation `json:"valuation"`
+	// TotalValuation is the whole investment's valuation; present only for shared investments.
+	TotalValuation *Valuation `json:"totalValuation"`
+	// Ownership is OWNER for this space's own investments and SHARED_IN for ones
+	// others shared into it (read-only).
+	Ownership    string           `json:"ownership" enums:"OWNER,SHARED_IN"`
+	MyShareBps   int              `json:"myShareBps" example:"3000"`
+	Participants []ParticipantDTO `json:"participants"`
+	RealizedPL   RealizedPLDTO    `json:"realizedPl"`
+	CreatedAt    time.Time        `json:"createdAt"`
+	UpdatedAt    time.Time        `json:"updatedAt"`
+}
+
+// ParticipantDTO is a person a shared investment is shared with. Other people's
+// email addresses are masked unless the viewer is the owner (GET .../participants).
+type ParticipantDTO struct {
+	ID          uuid.UUID `json:"id"`
+	Role        string    `json:"role" enums:"OWNER,PARTICIPANT"`
+	DisplayName string    `json:"displayName"`
+	Email       *string   `json:"email"`
+	SharePct    string    `json:"sharePct" example:"30.00"`
+	ShareBps    int       `json:"shareBps" example:"3000"`
+	Status      string    `json:"status" enums:"ACTIVE,INVITED,DECLINED,REMOVED"`
+	IsMe        bool      `json:"isMe"`
+	InvitedAt   time.Time `json:"invitedAt"`
+}
+
+func toParticipantDTOs(ps []ParticipantView) []ParticipantDTO {
+	out := make([]ParticipantDTO, 0, len(ps))
+	for _, p := range ps {
+		out = append(out, ParticipantDTO{
+			ID: p.ID, Role: p.Role, DisplayName: p.DisplayName, Email: p.Email, SharePct: bpsPct(p.ShareBps),
+			ShareBps: p.ShareBps, Status: p.Status, IsMe: p.IsMe, InvitedAt: p.InvitedAt,
+		})
+	}
+	return out
 }
 
 // RealizedPLDTO is the total realized profit/loss of an investment's SELL transactions.
@@ -97,7 +145,8 @@ func toDTO(it Item) InvestmentDTO {
 		ID: i.ID, AssetType: i.AssetType, PriceMode: i.PriceMode, Name: i.Name, Symbol: i.Symbol, Icon: i.Icon,
 		QuoteCurrency: strings.TrimSpace(i.QuoteCurrency), Quantity: i.Quantity, AvgBuyPrice: i.AvgBuyPrice,
 		ManualPrice: i.ManualPrice, Fees: i.Fees, EstimatedAnnualChangePct: i.EstimatedAnnualChangePct,
-		Details: it.Details, IsShared: i.IsShared, Valuation: it.Valuation,
+		Details: it.Details, IsShared: i.IsShared, Valuation: it.Valuation, TotalValuation: it.TotalValuation,
+		Ownership: it.Ownership, MyShareBps: it.MyShareBps, Participants: toParticipantDTOs(it.Participants),
 		RealizedPL: RealizedPLDTO{
 			Amount: it.Realized.Amount, Currency: strings.TrimSpace(i.QuoteCurrency), Base: it.Realized.Base, Sells: it.Realized.Sells,
 		},
@@ -158,12 +207,13 @@ func (h *Handler) types(w http.ResponseWriter, r *http.Request) {
 // list godoc
 //
 //	@Summary		List investments with valuations and a portfolio summary
-//	@Description	`summary` totals the base-currency values. Investments without a usable FX rate are left out of the totals and reported in `summary.warnings`. `unrealizedPlPct` is a percentage (12.5 = +12.5%).
+//	@Description	Values are the viewer's: for a shared investment `valuation` is my share (base-currency parts add up exactly across all participants) and `totalValuation` the whole. `summary` totals the base-currency values. Investments without a usable FX rate are left out of the totals and reported in `summary.warnings`. `unrealizedPlPct` is a percentage (12.5 = +12.5%).
 //	@Tags			investments
 //	@Security		BearerAuth
 //	@Produce		json
 //	@Param			spaceId		path		string	true	"Space ID"
 //	@Param			assetType	query		string	false	"CRYPTO, ID_STOCK, US_STOCK, MUTUAL_FUND or GLOBAL_ETF"
+//	@Param			include		query		string	false	"shared: also list investments other people shared into this space (read-only, ownership SHARED_IN, valued for my share)"
 //	@Success		200			{object}	ListResponse
 //	@Failure		400			{object}	httpx.ErrorEnvelope
 //	@Failure		404			{object}	httpx.ErrorEnvelope
@@ -177,7 +227,19 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	res, err := h.svc.List(r.Context(), spaces.SpaceIDFromContext(r.Context()), at)
+	includeShared := false
+	for _, inc := range strings.Split(r.URL.Query().Get("include"), ",") {
+		switch strings.ToLower(strings.TrimSpace(inc)) {
+		case "":
+		case "shared":
+			includeShared = true
+		default:
+			httpx.WriteError(w, r, apperror.Validation("Validation failed", map[string]any{"include": "must be: shared"}))
+			return
+		}
+	}
+	user, _ := auth.UserFromContext(r.Context())
+	res, err := h.svc.List(r.Context(), spaces.SpaceIDFromContext(r.Context()), at, includeShared, user.ID)
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
@@ -287,7 +349,8 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, err)
 		return
 	}
-	it, err := h.svc.Update(r.Context(), sp, id, p)
+	user, _ := auth.UserFromContext(r.Context())
+	it, err := h.svc.Update(r.Context(), sp, user.ID, id, p)
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
@@ -308,7 +371,8 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	id, err := investmentID(r)
 	if err == nil {
-		err = h.svc.Delete(r.Context(), spaces.SpaceIDFromContext(r.Context()), id)
+		user, _ := auth.UserFromContext(r.Context())
+		err = h.svc.Delete(r.Context(), spaces.SpaceIDFromContext(r.Context()), user.ID, id)
 	}
 	if err != nil {
 		httpx.WriteError(w, r, err)
@@ -340,11 +404,302 @@ func (h *Handler) refreshPrice(w http.ResponseWriter, r *http.Request) {
 	}
 	var it Item
 	if err == nil {
-		it, err = h.svc.RefreshPrice(r.Context(), spaces.SpaceIDFromContext(r.Context()), id)
+		user, _ := auth.UserFromContext(r.Context())
+		it, err = h.svc.RefreshPrice(r.Context(), spaces.SpaceIDFromContext(r.Context()), user.ID, id)
 	}
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, toDTO(it))
+}
+
+// --- sharing ---------------------------------------------------------------------------
+
+type participantRequest struct {
+	ParticipantID *uuid.UUID `json:"participantId"`
+	Email         *string    `json:"email" validate:"omitempty,max=254"`
+	DisplayName   string     `json:"displayName" validate:"required,min=1,max=120"`
+	SharePct      string     `json:"sharePct" validate:"required,max=16" example:"30.00"`
+	IsOwner       bool       `json:"isOwner"`
+}
+
+// SetParticipantsRequest is the full replacement list of participants.
+type SetParticipantsRequest struct {
+	Participants []participantRequest `json:"participants" validate:"required,min=1,max=50,dive"`
+}
+
+// ParticipantsResponse lists the people an investment is shared with.
+type ParticipantsResponse struct {
+	Items []ParticipantDTO `json:"items"`
+}
+
+// participants godoc
+//
+//	@Summary	List who an investment is shared with (owner only)
+//	@Tags		sharing
+//	@Security	BearerAuth
+//	@Produce	json
+//	@Param		spaceId	path		string	true	"Space ID"
+//	@Param		id		path		string	true	"Investment ID"
+//	@Success	200		{object}	ParticipantsResponse
+//	@Failure	403		{object}	httpx.ErrorEnvelope	"OWNER_ONLY"
+//	@Failure	404		{object}	httpx.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/investments/{id}/participants [get]
+func (h *Handler) participants(w http.ResponseWriter, r *http.Request) {
+	user, _ := auth.UserFromContext(r.Context())
+	id, err := investmentID(r)
+	var ps []ParticipantView
+	if err == nil {
+		ps, err = h.svc.Participants(r.Context(), spaces.SpaceIDFromContext(r.Context()), id, user)
+	}
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, ParticipantsResponse{Items: toParticipantDTOs(ps)})
+}
+
+// setParticipants godoc
+//
+//	@Summary		Share an investment: replace the participant list (owner only)
+//	@Description	Full replacement. Include yourself (`isOwner: true`, or your own email) with a share above 0. Shares are percentages with up to 2 decimals and the shares of all participants must add up to exactly 100.00 (422 SHARE_TOTAL_INVALID); at most 10 people (422 PARTICIPANT_LIMIT). A participant with an `email` becomes INVITED, one with only a `displayName` is ACTIVE right away (someone without an account). The response is identical whether or not an email belongs to an account. Entries left out of the list are removed. Shares count whatever the invitation status. Only the owner may edit a shared investment, its prices, trades and the participant list (403 OWNER_ONLY for other members of the space).
+//	@Tags			sharing
+//	@Security		BearerAuth
+//	@Accept			json
+//	@Produce		json
+//	@Param			spaceId	path		string					true	"Space ID"
+//	@Param			id		path		string					true	"Investment ID"
+//	@Param			body	body		SetParticipantsRequest	true	"Participants"
+//	@Success		200		{object}	ParticipantsResponse
+//	@Failure		400		{object}	httpx.ErrorEnvelope
+//	@Failure		403		{object}	httpx.ErrorEnvelope	"OWNER_ONLY"
+//	@Failure		404		{object}	httpx.ErrorEnvelope
+//	@Failure		422		{object}	httpx.ErrorEnvelope	"SHARE_TOTAL_INVALID / PARTICIPANT_LIMIT"
+//	@Router			/spaces/{spaceId}/investments/{id}/participants [put]
+func (h *Handler) setParticipants(w http.ResponseWriter, r *http.Request) {
+	user, _ := auth.UserFromContext(r.Context())
+	id, err := investmentID(r)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	req, err := httpx.DecodeAndValidate[SetParticipantsRequest](r)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	in := make([]ParticipantInput, 0, len(req.Participants))
+	for i, p := range req.Participants {
+		pct, perr := decimal.NewFromString(strings.TrimSpace(p.SharePct))
+		if perr != nil {
+			httpx.WriteError(w, r, apperror.Validation("Validation failed", map[string]any{
+				"participants[" + strconv.Itoa(i) + "].sharePct": "must be a number like 30.00"}))
+			return
+		}
+		pi := ParticipantInput{ParticipantID: p.ParticipantID, DisplayName: p.DisplayName, SharePct: pct, IsOwner: p.IsOwner}
+		if p.Email != nil {
+			pi.Email = strings.ToLower(strings.TrimSpace(*p.Email))
+		}
+		in = append(in, pi)
+	}
+	ps, err := h.svc.SetParticipants(r.Context(), spaces.SpaceIDFromContext(r.Context()), id, user, in)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, ParticipantsResponse{Items: toParticipantDTOs(ps)})
+}
+
+// stopSharing godoc
+//
+//	@Summary	Stop sharing: 100% returns to the owner and everyone else is removed (owner only)
+//	@Tags		sharing
+//	@Security	BearerAuth
+//	@Param		spaceId	path	string	true	"Space ID"
+//	@Param		id		path	string	true	"Investment ID"
+//	@Success	204
+//	@Failure	403	{object}	httpx.ErrorEnvelope	"OWNER_ONLY"
+//	@Failure	404	{object}	httpx.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/investments/{id}/participants [delete]
+func (h *Handler) stopSharing(w http.ResponseWriter, r *http.Request) {
+	user, _ := auth.UserFromContext(r.Context())
+	id, err := investmentID(r)
+	if err == nil {
+		err = h.svc.StopSharing(r.Context(), spaces.SpaceIDFromContext(r.Context()), id, user)
+	}
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ShareChangeDTO is one entry of the audit trail.
+type ShareChangeDTO struct {
+	ID        uuid.UUID       `json:"id"`
+	ChangedBy uuid.UUID       `json:"changedById"`
+	Before    json.RawMessage `json:"before" swaggertype:"object"`
+	After     json.RawMessage `json:"after" swaggertype:"object"`
+	CreatedAt time.Time       `json:"createdAt"`
+}
+
+// shareChanges godoc
+//
+//	@Summary	Audit trail of an investment's sharing arrangement, newest first (owner only)
+//	@Tags		sharing
+//	@Security	BearerAuth
+//	@Produce	json
+//	@Param		spaceId	path		string	true	"Space ID"
+//	@Param		id		path		string	true	"Investment ID"
+//	@Success	200		{array}		ShareChangeDTO
+//	@Failure	403		{object}	httpx.ErrorEnvelope	"OWNER_ONLY"
+//	@Failure	404		{object}	httpx.ErrorEnvelope
+//	@Router		/spaces/{spaceId}/investments/{id}/share-changes [get]
+func (h *Handler) shareChanges(w http.ResponseWriter, r *http.Request) {
+	user, _ := auth.UserFromContext(r.Context())
+	id, err := investmentID(r)
+	var rows []sqlc.InvestmentShareChange
+	if err == nil {
+		rows, err = h.svc.ShareChanges(r.Context(), spaces.SpaceIDFromContext(r.Context()), id, user.ID)
+	}
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	out := make([]ShareChangeDTO, 0, len(rows))
+	for _, c := range rows {
+		out = append(out, ShareChangeDTO{ID: c.ID, ChangedBy: c.ChangedByID, Before: c.Before, After: c.After, CreatedAt: c.CreatedAt.UTC()})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// InvitationDTO is a pending invitation to co-own an investment.
+type InvitationDTO struct {
+	ParticipantID uuid.UUID `json:"participantId"`
+	OwnerName     string    `json:"ownerName"`
+	Investment    struct {
+		Name      string  `json:"name"`
+		Symbol    *string `json:"symbol"`
+		Icon      string  `json:"icon"`
+		AssetType string  `json:"assetType"`
+	} `json:"investment"`
+	SharePct  string    `json:"sharePct" example:"30.00"`
+	ShareBps  int       `json:"shareBps"`
+	InvitedAt time.Time `json:"invitedAt"`
+}
+
+// invitations godoc
+//
+//	@Summary		My pending shared-investment invitations
+//	@Description	Invitations addressed to my account or to my account's email (case-insensitive), including ones sent before I registered. Shows the investment and my share, never the owner's space.
+//	@Tags			sharing
+//	@Security		BearerAuth
+//	@Produce		json
+//	@Success		200	{array}	InvitationDTO
+//	@Router			/me/shared-investment-invitations [get]
+func (h *Handler) invitations(w http.ResponseWriter, r *http.Request) {
+	user, _ := auth.UserFromContext(r.Context())
+	inv, err := h.svc.Invitations(r.Context(), user)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	out := make([]InvitationDTO, 0, len(inv))
+	for _, i := range inv {
+		d := InvitationDTO{ParticipantID: i.ParticipantID, OwnerName: i.OwnerName, SharePct: bpsPct(i.ShareBps), ShareBps: i.ShareBps, InvitedAt: i.InvitedAt}
+		d.Investment.Name, d.Investment.Symbol, d.Investment.Icon, d.Investment.AssetType = i.Name, i.Symbol, i.Icon, i.AssetType
+		out = append(out, d)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+type acceptRequest struct {
+	SpaceID uuid.UUID `json:"spaceId" validate:"required" swaggertype:"string"`
+}
+
+func participantID(r *http.Request) (uuid.UUID, error) {
+	id, err := uuid.Parse(chi.URLParam(r, "participantId"))
+	if err != nil {
+		return uuid.Nil, errInvitationNF
+	}
+	return id, nil
+}
+
+// acceptInvitation godoc
+//
+//	@Summary		Accept a shared-investment invitation
+//	@Description	The investment is attached to the given space (you must be a member of it, and it must not be the owner's space); that space then counts my share and lists it with `include=shared`.
+//	@Tags			sharing
+//	@Security		BearerAuth
+//	@Accept			json
+//	@Param			participantId	path	string			true	"Invitation (participant) ID"
+//	@Param			body			body	acceptRequest	true	"Space to attach it to"
+//	@Success		204
+//	@Failure		400	{object}	httpx.ErrorEnvelope
+//	@Failure		404	{object}	httpx.ErrorEnvelope
+//	@Failure		409	{object}	httpx.ErrorEnvelope	"SHARE_INVITATION_ANSWERED"
+//	@Router			/me/shared-investment-invitations/{participantId}/accept [post]
+func (h *Handler) acceptInvitation(w http.ResponseWriter, r *http.Request) {
+	user, _ := auth.UserFromContext(r.Context())
+	id, err := participantID(r)
+	var req acceptRequest
+	if err == nil {
+		req, err = httpx.DecodeAndValidate[acceptRequest](r)
+	}
+	if err == nil {
+		err = h.svc.AcceptInvitation(r.Context(), user, id, req.SpaceID)
+	}
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// declineInvitation godoc
+//
+//	@Summary	Decline a shared-investment invitation (the share stays allocated until the owner changes it)
+//	@Tags		sharing
+//	@Security	BearerAuth
+//	@Param		participantId	path	string	true	"Invitation (participant) ID"
+//	@Success	204
+//	@Failure	404	{object}	httpx.ErrorEnvelope
+//	@Failure	409	{object}	httpx.ErrorEnvelope	"SHARE_INVITATION_ANSWERED"
+//	@Router		/me/shared-investment-invitations/{participantId}/decline [post]
+func (h *Handler) declineInvitation(w http.ResponseWriter, r *http.Request) {
+	user, _ := auth.UserFromContext(r.Context())
+	id, err := participantID(r)
+	if err == nil {
+		err = h.svc.DeclineInvitation(r.Context(), user, id)
+	}
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// leave godoc
+//
+//	@Summary		Leave a shared investment
+//	@Description	My share stays allocated but becomes a name-only participant; the owner finds the change in the audit trail.
+//	@Tags			sharing
+//	@Security		BearerAuth
+//	@Param			participantId	path	string	true	"My participant ID"
+//	@Success		204
+//	@Failure		404	{object}	httpx.ErrorEnvelope
+//	@Failure		422	{object}	httpx.ErrorEnvelope	"SHARE_OWNER_CANNOT_LEAVE"
+//	@Router			/me/shared-investments/{participantId}/leave [post]
+func (h *Handler) leave(w http.ResponseWriter, r *http.Request) {
+	user, _ := auth.UserFromContext(r.Context())
+	id, err := participantID(r)
+	if err == nil {
+		err = h.svc.LeaveSharedInvestment(r.Context(), user, id)
+	}
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

@@ -440,8 +440,23 @@ definitions:
         type: string
       manualPrice:
         type: string
+      myShareBps:
+        example: 3000
+        type: integer
       name:
         type: string
+      ownership:
+        description: |-
+          Ownership is OWNER for this space's own investments and SHARED_IN for ones
+          others shared into it (read-only).
+        enum:
+        - OWNER
+        - SHARED_IN
+        type: string
+      participants:
+        items:
+          $ref: '#/definitions/investments.ParticipantDTO'
+        type: array
       priceMode:
         enum:
         - AUTO
@@ -460,10 +475,43 @@ definitions:
         $ref: '#/definitions/investments.RealizedPLDTO'
       symbol:
         type: string
+      totalValuation:
+        allOf:
+        - $ref: '#/definitions/investments.Valuation'
+        description: TotalValuation is the whole investment's valuation; present only
+          for shared investments.
       updatedAt:
         type: string
       valuation:
-        $ref: '#/definitions/investments.Valuation'
+        allOf:
+        - $ref: '#/definitions/investments.Valuation'
+        description: 'Valuation is the viewer''s part: the whole investment unless
+          it is shared.'
+    type: object
+  investments.InvitationDTO:
+    properties:
+      investment:
+        properties:
+          assetType:
+            type: string
+          icon:
+            type: string
+          name:
+            type: string
+          symbol:
+            type: string
+        type: object
+      invitedAt:
+        type: string
+      ownerName:
+        type: string
+      participantId:
+        type: string
+      shareBps:
+        type: integer
+      sharePct:
+        example: "30.00"
+        type: string
     type: object
   investments.ListResponse:
     properties:
@@ -473,6 +521,44 @@ definitions:
         type: array
       summary:
         $ref: '#/definitions/investments.Summary'
+    type: object
+  investments.ParticipantDTO:
+    properties:
+      displayName:
+        type: string
+      email:
+        type: string
+      id:
+        type: string
+      invitedAt:
+        type: string
+      isMe:
+        type: boolean
+      role:
+        enum:
+        - OWNER
+        - PARTICIPANT
+        type: string
+      shareBps:
+        example: 3000
+        type: integer
+      sharePct:
+        example: "30.00"
+        type: string
+      status:
+        enum:
+        - ACTIVE
+        - INVITED
+        - DECLINED
+        - REMOVED
+        type: string
+    type: object
+  investments.ParticipantsResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/investments.ParticipantDTO'
+        type: array
     type: object
   investments.PatchInput:
     properties:
@@ -530,6 +616,30 @@ definitions:
         type: string
       sells:
         type: integer
+    type: object
+  investments.SetParticipantsRequest:
+    properties:
+      participants:
+        items:
+          $ref: '#/definitions/investments.participantRequest'
+        maxItems: 50
+        minItems: 1
+        type: array
+    required:
+    - participants
+    type: object
+  investments.ShareChangeDTO:
+    properties:
+      after:
+        type: object
+      before:
+        type: object
+      changedById:
+        type: string
+      createdAt:
+        type: string
+      id:
+        type: string
     type: object
   investments.Summary:
     properties:
@@ -626,6 +736,34 @@ definitions:
         items:
           $ref: '#/definitions/currency.Warning'
         type: array
+    type: object
+  investments.acceptRequest:
+    properties:
+      spaceId:
+        type: string
+    required:
+    - spaceId
+    type: object
+  investments.participantRequest:
+    properties:
+      displayName:
+        maxLength: 120
+        minLength: 1
+        type: string
+      email:
+        maxLength: 254
+        type: string
+      isOwner:
+        type: boolean
+      participantId:
+        type: string
+      sharePct:
+        example: "30.00"
+        maxLength: 16
+        type: string
+    required:
+    - displayName
+    - sharePct
     type: object
   marketdata.InstrumentDTO:
     properties:
@@ -1883,6 +2021,115 @@ paths:
       summary: Update my preferences
       tags:
       - me
+  /me/shared-investment-invitations:
+    get:
+      description: Invitations addressed to my account or to my account's email (case-insensitive),
+        including ones sent before I registered. Shows the investment and my share,
+        never the owner's space.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/investments.InvitationDTO'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: My pending shared-investment invitations
+      tags:
+      - sharing
+  /me/shared-investment-invitations/{participantId}/accept:
+    post:
+      consumes:
+      - application/json
+      description: The investment is attached to the given space (you must be a member
+        of it, and it must not be the owner's space); that space then counts my share
+        and lists it with `include=shared`.
+      parameters:
+      - description: Invitation (participant) ID
+        in: path
+        name: participantId
+        required: true
+        type: string
+      - description: Space to attach it to
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/investments.acceptRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "409":
+          description: SHARE_INVITATION_ANSWERED
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Accept a shared-investment invitation
+      tags:
+      - sharing
+  /me/shared-investment-invitations/{participantId}/decline:
+    post:
+      parameters:
+      - description: Invitation (participant) ID
+        in: path
+        name: participantId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "409":
+          description: SHARE_INVITATION_ANSWERED
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Decline a shared-investment invitation (the share stays allocated until
+        the owner changes it)
+      tags:
+      - sharing
+  /me/shared-investments/{participantId}/leave:
+    post:
+      description: My share stays allocated but becomes a name-only participant; the
+        owner finds the change in the audit trail.
+      parameters:
+      - description: My participant ID
+        in: path
+        name: participantId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "422":
+          description: SHARE_OWNER_CANNOT_LEAVE
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Leave a shared investment
+      tags:
+      - sharing
   /spaces:
     get:
       produces:
@@ -2370,8 +2617,10 @@ paths:
       - currency
   /spaces/{spaceId}/investments:
     get:
-      description: '`summary` totals the base-currency values. Investments without
-        a usable FX rate are left out of the totals and reported in `summary.warnings`.
+      description: 'Values are the viewer''s: for a shared investment `valuation`
+        is my share (base-currency parts add up exactly across all participants) and
+        `totalValuation` the whole. `summary` totals the base-currency values. Investments
+        without a usable FX rate are left out of the totals and reported in `summary.warnings`.
         `unrealizedPlPct` is a percentage (12.5 = +12.5%).'
       parameters:
       - description: Space ID
@@ -2382,6 +2631,11 @@ paths:
       - description: CRYPTO, ID_STOCK, US_STOCK, MUTUAL_FUND or GLOBAL_ETF
         in: query
         name: assetType
+        type: string
+      - description: 'shared: also list investments other people shared into this
+          space (read-only, ownership SHARED_IN, valued for my share)'
+        in: query
+        name: include
         type: string
       produces:
       - application/json
@@ -2554,6 +2808,125 @@ paths:
       summary: Update an investment
       tags:
       - investments
+  /spaces/{spaceId}/investments/{id}/participants:
+    delete:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Investment ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: OWNER_ONLY
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: 'Stop sharing: 100% returns to the owner and everyone else is removed
+        (owner only)'
+      tags:
+      - sharing
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Investment ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/investments.ParticipantsResponse'
+        "403":
+          description: OWNER_ONLY
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: List who an investment is shared with (owner only)
+      tags:
+      - sharing
+    put:
+      consumes:
+      - application/json
+      description: 'Full replacement. Include yourself (`isOwner: true`, or your own
+        email) with a share above 0. Shares are percentages with up to 2 decimals
+        and the shares of all participants must add up to exactly 100.00 (422 SHARE_TOTAL_INVALID);
+        at most 10 people (422 PARTICIPANT_LIMIT). A participant with an `email` becomes
+        INVITED, one with only a `displayName` is ACTIVE right away (someone without
+        an account). The response is identical whether or not an email belongs to
+        an account. Entries left out of the list are removed. Shares count whatever
+        the invitation status. Only the owner may edit a shared investment, its prices,
+        trades and the participant list (403 OWNER_ONLY for other members of the space).'
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Investment ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Participants
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/investments.SetParticipantsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/investments.ParticipantsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "403":
+          description: OWNER_ONLY
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "422":
+          description: SHARE_TOTAL_INVALID / PARTICIPANT_LIMIT
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: 'Share an investment: replace the participant list (owner only)'
+      tags:
+      - sharing
   /spaces/{spaceId}/investments/{id}/refresh-price:
     post:
       description: Rate limited to 1 per minute per investment. On a provider failure
@@ -2597,6 +2970,42 @@ paths:
       summary: Refresh the market price of an AUTO investment now
       tags:
       - investments
+  /spaces/{spaceId}/investments/{id}/share-changes:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Investment ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/investments.ShareChangeDTO'
+            type: array
+        "403":
+          description: OWNER_ONLY
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Audit trail of an investment's sharing arrangement, newest first (owner
+        only)
+      tags:
+      - sharing
   /spaces/{spaceId}/invitations:
     post:
       parameters:
