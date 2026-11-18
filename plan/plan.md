@@ -278,7 +278,7 @@ Full field lists are defined in each phase. This is the map.
 | P6 | Categories & budgets | P3 | M2 | Done |
 | P7 | Wallets & ledger foundation | P5 | M2 | Done |
 | P8 | Income/expense transactions & querying | P6, P7 | M2 | Done |
-| P9 | Wallet-to-wallet transfers | P8 | M2 | Backlog |
+| P9 | Wallet-to-wallet transfers | P8 | M2 | Done |
 | P10 | Investments core (manual pricing) | P5 | M3 Investments | Backlog |
 | P11 | Crypto auto pricing (CoinMarketCap) | P10 | M3 | Backlog |
 | P12 | US stock / ETF auto pricing (Massive) | P11 | M3 | Backlog |

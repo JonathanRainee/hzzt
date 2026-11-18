@@ -34,6 +34,7 @@ import (
 	"github.com/JonathanRainee/hzzt/internal/server"
 	"github.com/JonathanRainee/hzzt/internal/spaces"
 	"github.com/JonathanRainee/hzzt/internal/transactions"
+	"github.com/JonathanRainee/hzzt/internal/transfers"
 	"github.com/JonathanRainee/hzzt/internal/users"
 	"github.com/JonathanRainee/hzzt/internal/wallets"
 )
@@ -161,7 +162,8 @@ func newTestServer(t *testing.T, limits auth.Limits, userLimits users.Limits) *T
 	transactionsSvc := transactions.NewService(tx, currencySvc, clock.Now)
 	categoriesSvc.SetUsageChecker(transactionsSvc.CategoryInUse)
 	transactionsHandler := transactions.NewHandler(transactionsSvc, svc, spacesSvc)
-	srv := httptest.NewServer(server.NewRouter(cfg, log, sqlc.New(tx), handler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount, walletsHandler.Mount, transactionsHandler.Mount))
+	transfersHandler := transfers.NewHandler(transfers.NewService(tx, transactionsSvc, clock.Now), svc, spacesSvc)
+	srv := httptest.NewServer(server.NewRouter(cfg, log, sqlc.New(tx), handler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount, walletsHandler.Mount, transactionsHandler.Mount, transfersHandler.Mount))
 	t.Cleanup(srv.Close)
 
 	ts := &TestServer{Server: srv, Tx: tx, Email: mail, Events: bus, Auth: svc, Clock: clock, FX: fx, Currency: currencySvc, Categories: categoriesSvc, t: t}

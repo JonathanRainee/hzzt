@@ -98,3 +98,11 @@ WHERE t.space_id = $1 AND t.category_id IS NOT NULL AND t.type IN ('INCOME', 'EX
   AND (sqlc.narg('from_ts')::timestamptz IS NULL OR t.occurred_at >= sqlc.narg('from_ts'))
   AND (sqlc.narg('to_ts')::timestamptz IS NULL OR t.occurred_at < sqlc.narg('to_ts'))
 GROUP BY t.category_id, t.type, t.currency;
+
+-- name: UpdateTransfer :one
+UPDATE transactions SET
+    wallet_id = $3, to_wallet_id = $4, amount = $5, currency = $6,
+    to_amount = $7, to_currency = $8, fx_rate = $9, occurred_at = $10,
+    note = sqlc.narg('note'), updated_at = now()
+WHERE id = $1 AND space_id = $2 AND type = 'TRANSFER'
+RETURNING *;
