@@ -131,6 +131,16 @@ func (s *Service) value(inv sqlc.Investment, prices map[uuid.UUID]MarketPrice, c
 // viewer's valuations and a summary. With includeShared, investments other people
 // shared into this space are listed too (read-only, flagged SHARED_IN).
 func (s *Service) List(ctx context.Context, spaceID uuid.UUID, assetType string, includeShared bool, viewer uuid.UUID) (ListResult, error) {
+	cc, err := s.currency.BuildContext(ctx, spaceID)
+	if err != nil {
+		return ListResult{}, err
+	}
+	return s.ListWith(ctx, spaceID, assetType, includeShared, viewer, cc, s.now())
+}
+
+// ListWith is List with an explicit conversion context and clock, so callers such
+// as the net-worth summary value everything with one consistent set of rates.
+func (s *Service) ListWith(ctx context.Context, spaceID uuid.UUID, assetType string, includeShared bool, viewer uuid.UUID, cc *currency.ConversionContext, now time.Time) (ListResult, error) {
 	var t *string
 	if assetType != "" {
 		t = &assetType
@@ -155,10 +165,6 @@ func (s *Service) List(ctx context.Context, spaceID uuid.UUID, assetType string,
 		}
 	}
 
-	cc, err := s.currency.BuildContext(ctx, spaceID)
-	if err != nil {
-		return ListResult{}, err
-	}
 	prices, err := s.marketPrices(ctx, invs)
 	if err != nil {
 		return ListResult{}, err
@@ -172,7 +178,6 @@ func (s *Service) List(ctx context.Context, spaceID uuid.UUID, assetType string,
 		return ListResult{}, err
 	}
 
-	now := s.now()
 	res := ListResult{Items: make([]Item, 0, len(invs))}
 	vals := make([]Valuation, 0, len(invs))
 	add := func(inv sqlc.Investment, mine func(sqlc.InvestmentParticipant) bool, ownership string) error {
