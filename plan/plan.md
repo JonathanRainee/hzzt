@@ -283,7 +283,7 @@ Full field lists are defined in each phase. This is the map.
 | P11 | Crypto auto pricing (CoinMarketCap) | P10 | M3 | Done |
 | P12 | US stock / ETF auto pricing (Massive) | P11 | M3 | Done |
 | P13 | Investment buy/sell through wallets | P9, P10 | M3 | Done |
-| P14 | Shared investments | P10, P13 | M3 | Backlog |
+| P14 | Shared investments | P10, P13 | M3 | Done |
 | P15 | Other assets & net-worth summary | P9, P14 | M4 Net worth & planning | Backlog |
 | P16 | Goals | P7 | M4 | Backlog |
 | P17 | Dashboard, analytics & net-worth history | P8, P15 | M4 | Backlog |
@@ -1086,6 +1086,9 @@ DELIVERABLES (report back)
 | INSTRUMENT_NOT_LINKED, PRICE_MODE_NOT_AUTO | 422 | P11 |
 | INSUFFICIENT_QUANTITY, POSITION_CHANGED_SINCE | 422/409 | P13 |
 | SHARE_TOTAL_INVALID, PARTICIPANT_LIMIT, OWNER_ONLY | 422/403 | P14 |
+| SHARE_INVITATION_NOT_FOUND | 404 | P14 |
+| SHARE_INVITATION_ANSWERED | 409 | P14 |
+| SHARE_OWNER_CANNOT_LEAVE | 422 | P14 |
 | SETTLEMENT_EXCEEDS_BALANCE | 422 | P15 |
 | INSUFFICIENT_AVAILABLE_BALANCE | 422 | P16 |
 
