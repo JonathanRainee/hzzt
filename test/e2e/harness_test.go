@@ -21,9 +21,13 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
+	"github.com/JonathanRainee/hzzt/internal/auth"
 	"github.com/JonathanRainee/hzzt/internal/config"
 	"github.com/JonathanRainee/hzzt/internal/db"
 	"github.com/JonathanRainee/hzzt/internal/db/sqlc"
+	"github.com/JonathanRainee/hzzt/internal/platform/email"
+	"github.com/JonathanRainee/hzzt/internal/platform/events"
+	"github.com/JonathanRainee/hzzt/internal/platform/httpx"
 	"github.com/JonathanRainee/hzzt/internal/server"
 )
 
@@ -59,12 +63,32 @@ func run(m *testing.M) int {
 // a single transaction that is rolled back when the test ends.
 type TestServer struct {
 	*httptest.Server
-	Tx pgx.Tx // for seeding and asserting data directly
-	t  *testing.T
+	Tx     pgx.Tx // for seeding and asserting data directly
+	Email  *email.Memory
+	Events *events.Bus
+	Auth   *auth.Service
+	t      *testing.T
+}
+
+const testJWTSecret = "e2e-test-secret-e2e-test-secret-0123"
+
+// generousLimits keeps rate limiting out of the way of ordinary tests.
+func generousLimits() auth.Limits {
+	return auth.Limits{
+		Login:    httpx.NewRateLimiter(1000, time.Minute),
+		Register: httpx.NewRateLimiter(1000, time.Minute),
+		Forgot:   httpx.NewRateLimiter(1000, time.Minute),
+	}
 }
 
 // NewTestServer starts the real router on a per-test transaction.
 func NewTestServer(t *testing.T) *TestServer {
+	t.Helper()
+	return NewTestServerWithLimits(t, generousLimits())
+}
+
+// NewTestServerWithLimits is NewTestServer with explicit auth rate limits.
+func NewTestServerWithLimits(t *testing.T, limits auth.Limits) *TestServer {
 	t.Helper()
 	ctx := context.Background()
 
@@ -84,16 +108,39 @@ func NewTestServer(t *testing.T) *TestServer {
 		CORSOrigins: []string{"http://localhost:3000"},
 	}
 	log := zerolog.Nop()
-	srv := httptest.NewServer(server.NewRouter(cfg, log, sqlc.New(tx)))
+	mail := &email.Memory{}
+	bus := events.NewBus(log)
+	svc := auth.NewService(tx, auth.Options{
+		AccessSecret: testJWTSecret,
+		AccessTTL:    15 * time.Minute,
+		RefreshTTL:   30 * 24 * time.Hour,
+		AppURL:       "http://localhost:3000",
+		Email:        mail,
+		Events:       bus,
+		Log:          log,
+	})
+	handler := auth.NewHandler(svc, limits, false)
+	srv := httptest.NewServer(server.NewRouter(cfg, log, sqlc.New(tx), handler.Mount))
 	t.Cleanup(srv.Close)
 
-	return &TestServer{Server: srv, Tx: tx, t: t}
+	return &TestServer{Server: srv, Tx: tx, Email: mail, Events: bus, Auth: svc, t: t}
 }
 
 // Response is a fully read HTTP response.
 type Response struct {
 	Status int
 	Body   []byte
+	Header http.Header
+}
+
+// Cookie returns the Set-Cookie with the given name, or nil.
+func (r Response) Cookie(name string) *http.Cookie {
+	for _, c := range (&http.Response{Header: r.Header}).Cookies() {
+		if c.Name == name {
+			return c
+		}
+	}
+	return nil
 }
 
 // JSON decodes the body into v.
@@ -124,7 +171,7 @@ func (s *TestServer) Do(method, path string, body any, headers ...[2]string) Res
 	defer func() { _ = res.Body.Close() }()
 	b, err := io.ReadAll(res.Body)
 	require.NoError(s.t, err)
-	return Response{Status: res.StatusCode, Body: b}
+	return Response{Status: res.StatusCode, Body: b, Header: res.Header}
 }
 
 // Get is shorthand for Do(GET, path, nil).
