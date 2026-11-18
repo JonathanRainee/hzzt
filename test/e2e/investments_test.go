@@ -49,9 +49,15 @@ type investmentBody struct {
 	EstimatedAnnualChangePct string         `json:"estimatedAnnualChangePct"`
 	ManualFxRate             *string        `json:"manualFxRate"`
 	Details                  map[string]any `json:"details"`
-	InstrumentID             *string        `json:"instrumentId"`
-	IsShared                 bool           `json:"isShared"`
-	Valuation                valuationBody  `json:"valuation"`
+	RealizedPL               struct {
+		Amount   string  `json:"amount"`
+		Currency string  `json:"currency"`
+		Base     *string `json:"base"`
+		Sells    int     `json:"sells"`
+	} `json:"realizedPl"`
+	InstrumentID *string       `json:"instrumentId"`
+	IsShared     bool          `json:"isShared"`
+	Valuation    valuationBody `json:"valuation"`
 }
 
 type investmentList struct {

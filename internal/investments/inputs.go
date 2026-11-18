@@ -38,6 +38,16 @@ type Spec struct {
 	// InstrumentID is the market instrument the client picked from search
 	// (CRYPTO, US_STOCK and GLOBAL_ETF); nil means "resolve from the symbol when AUTO".
 	InstrumentID *uuid.UUID
+	// Funding, when set, pays for the initial position from a wallet (a BUY).
+	Funding *Funding
+}
+
+// Funding asks for the initial position to be paid from a wallet. The wallet is
+// debited quantity × avgBuyPrice + fees (converted to the wallet's currency, or
+// the given amount) and a BUY titled "Initial position {symbol}" is recorded.
+type Funding struct {
+	WalletID uuid.UUID        `json:"walletId" swaggertype:"string"`
+	Amount   *decimal.Decimal `json:"amount,omitempty" swaggertype:"string" example:"1000000"`
 }
 
 // --- per-type details ----------------------------------------------------------
@@ -165,6 +175,8 @@ type base struct {
 	PurchaseDate             *string          `json:"purchaseDate" example:"2026-01-31"`
 	EstimatedAnnualChangePct *decimal.Decimal `json:"estimatedAnnualChangePct" swaggertype:"string" example:"5.5"`
 	ManualFxRate             *decimal.Decimal `json:"manualFxRate" swaggertype:"string" example:"16000"`
+	// Funding pays the initial position from a wallet (optional).
+	Funding *Funding `json:"funding"`
 }
 
 // Create inputs, one per asset type. The request is decoded in two passes keyed on assetType.
@@ -371,6 +383,13 @@ func buildSpec(assetType, name string, b *base, quantity *decimal.Decimal, detai
 	}
 	if quantity != nil {
 		s.Quantity = *quantity
+	}
+	if b.Funding != nil {
+		if b.Funding.WalletID == uuid.Nil {
+			f["funding.walletId"] = "is required"
+		}
+		checkDec(f, "funding.amount", b.Funding.Amount, 8, true)
+		s.Funding = b.Funding
 	}
 	if err := checkMoneyFields(f, &s, b, quantity); err != nil {
 		return Spec{}, err

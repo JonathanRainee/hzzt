@@ -78,8 +78,17 @@ type InvestmentDTO struct {
 	InstrumentID             *uuid.UUID       `json:"instrumentId"`
 	IsShared                 bool             `json:"isShared"`
 	Valuation                Valuation        `json:"valuation"`
+	RealizedPL               RealizedPLDTO    `json:"realizedPl"`
 	CreatedAt                time.Time        `json:"createdAt"`
 	UpdatedAt                time.Time        `json:"updatedAt"`
+}
+
+// RealizedPLDTO is the total realized profit/loss of an investment's SELL transactions.
+type RealizedPLDTO struct {
+	Amount   decimal.Decimal  `json:"amount" swaggertype:"string" example:"5990"`
+	Currency string           `json:"currency" example:"USD"`
+	Base     *decimal.Decimal `json:"base" swaggertype:"string"`
+	Sells    int              `json:"sells"`
 }
 
 func toDTO(it Item) InvestmentDTO {
@@ -89,6 +98,9 @@ func toDTO(it Item) InvestmentDTO {
 		QuoteCurrency: strings.TrimSpace(i.QuoteCurrency), Quantity: i.Quantity, AvgBuyPrice: i.AvgBuyPrice,
 		ManualPrice: i.ManualPrice, Fees: i.Fees, EstimatedAnnualChangePct: i.EstimatedAnnualChangePct,
 		Details: it.Details, IsShared: i.IsShared, Valuation: it.Valuation,
+		RealizedPL: RealizedPLDTO{
+			Amount: it.Realized.Amount, Currency: strings.TrimSpace(i.QuoteCurrency), Base: it.Realized.Base, Sells: it.Realized.Sells,
+		},
 		CreatedAt: i.CreatedAt.UTC(), UpdatedAt: i.UpdatedAt.UTC(),
 	}
 	if i.ManualCurrentValue.Valid {
@@ -189,7 +201,7 @@ type CreateRequestDoc struct {
 // create godoc
 //
 //	@Summary		Create an investment
-//	@Description	The body is validated by `assetType` (see GET /investment-types). ID_STOCK takes `details.lots` and derives quantity = lots × 100. CRYPTO checks `details.stakedQuantity` <= quantity. `priceMode: AUTO` is accepted for CRYPTO, US_STOCK and GLOBAL_ETF and answers 422 AUTO_PRICE_NOT_SUPPORTED otherwise. An AUTO investment is linked to a market instrument: send the `instrumentId` picked from GET /market/crypto/search (CRYPTO) or GET /market/stocks/search (US_STOCK, GLOBAL_ETF), or the symbol is resolved to the highest-ranked coin / the exact ticker (422 INSTRUMENT_NOT_FOUND if none matches). Without a market price the manual price is used.
+//	@Description	The body is validated by `assetType` (see GET /investment-types). ID_STOCK takes `details.lots` and derives quantity = lots × 100. CRYPTO checks `details.stakedQuantity` <= quantity. `priceMode: AUTO` is accepted for CRYPTO, US_STOCK and GLOBAL_ETF and answers 422 AUTO_PRICE_NOT_SUPPORTED otherwise. An AUTO investment is linked to a market instrument: send the `instrumentId` picked from GET /market/crypto/search (CRYPTO) or GET /market/stocks/search (US_STOCK, GLOBAL_ETF), or the symbol is resolved to the highest-ranked coin / the exact ticker (422 INSTRUMENT_NOT_FOUND if none matches). Without a market price the manual price is used. Optional `funding: {walletId, amount?}` pays for the initial position from a wallet: it creates a BUY titled "Initial position {symbol}" (wallet debited quantity × avgBuyPrice + fees, converted to the wallet's currency unless `amount` is given) in the same database transaction.
 //	@Tags			investments
 //	@Security		BearerAuth
 //	@Accept			json

@@ -13,6 +13,7 @@ import (
 	"github.com/JonathanRainee/hzzt/internal/currency"
 	"github.com/JonathanRainee/hzzt/internal/db"
 	"github.com/JonathanRainee/hzzt/internal/db/sqlc"
+	"github.com/JonathanRainee/hzzt/internal/ledger"
 	"github.com/JonathanRainee/hzzt/internal/platform/apperror"
 )
 
@@ -68,6 +69,7 @@ type Item struct {
 	Investment sqlc.Investment
 	Valuation  Valuation
 	Details    any
+	Realized   RealizedPL
 }
 
 // ListResult is the portfolio: items with valuations and the base-currency summary.
@@ -124,6 +126,10 @@ func (s *Service) List(ctx context.Context, spaceID uuid.UUID, assetType string)
 	if err != nil {
 		return ListResult{}, err
 	}
+	realized, err := s.realized(ctx, spaceID, cc, rows)
+	if err != nil {
+		return ListResult{}, err
+	}
 	now := s.now()
 	res := ListResult{Items: make([]Item, 0, len(rows))}
 	vals := make([]Valuation, 0, len(rows))
@@ -132,6 +138,7 @@ func (s *Service) List(ctx context.Context, spaceID uuid.UUID, assetType string)
 		if err != nil {
 			return ListResult{}, err
 		}
+		it.Realized = realized[r.ID]
 		res.Items = append(res.Items, it)
 		vals = append(vals, it.Valuation)
 	}
@@ -160,7 +167,16 @@ func (s *Service) item(ctx context.Context, inv sqlc.Investment) (Item, error) {
 	if err != nil {
 		return Item{}, err
 	}
-	return s.value(inv, prices, cc, s.now())
+	it, err := s.value(inv, prices, cc, s.now())
+	if err != nil {
+		return Item{}, err
+	}
+	realized, err := s.realized(ctx, inv.SpaceID, cc, []sqlc.Investment{inv})
+	if err != nil {
+		return Item{}, err
+	}
+	it.Realized = realized[inv.ID]
+	return it, nil
 }
 
 func toNullDecimal(d *decimal.Decimal) decimal.NullDecimal {
@@ -170,7 +186,8 @@ func toNullDecimal(d *decimal.Decimal) decimal.NullDecimal {
 	return decimal.NullDecimal{Decimal: *d, Valid: true}
 }
 
-// Create stores a validated investment spec.
+// Create stores a validated investment spec. With spec.Funding the initial
+// position is paid from the wallet in the same database transaction.
 func (s *Service) Create(ctx context.Context, spaceID, userID uuid.UUID, spec Spec) (Item, error) {
 	details, err := DetailsJSON(spec.Details)
 	if err != nil {
@@ -180,19 +197,105 @@ func (s *Service) Create(ctx context.Context, spaceID, userID uuid.UUID, spec Sp
 	if err != nil {
 		return Item{}, err
 	}
-	inv, err := s.q.CreateInvestment(ctx, sqlc.CreateInvestmentParams{
-		SpaceID: spaceID, AssetType: spec.AssetType, PriceMode: spec.PriceMode, Name: spec.Name, Symbol: spec.Symbol,
-		Icon: spec.Icon, QuoteCurrency: spec.QuoteCurrency, Quantity: spec.Quantity, AvgBuyPrice: spec.AvgBuyPrice,
-		ManualPrice: spec.ManualPrice, Fees: spec.Fees, ManualCurrentValue: toNullDecimal(spec.ManualCurrentValue),
-		PurchaseDate: spec.PurchaseDate, EstimatedAnnualChangePct: spec.EstimatedAnnualChangePct,
-		ManualFxRate: toNullDecimal(spec.ManualFxRate), Details: details, CreatedByID: userID,
-		InstrumentID: instrument,
-	})
-	if err != nil {
-		return Item{}, err
+	insert := func(q *sqlc.Queries) (sqlc.Investment, error) {
+		return q.CreateInvestment(ctx, sqlc.CreateInvestmentParams{
+			SpaceID: spaceID, AssetType: spec.AssetType, PriceMode: spec.PriceMode, Name: spec.Name, Symbol: spec.Symbol,
+			Icon: spec.Icon, QuoteCurrency: spec.QuoteCurrency, Quantity: spec.Quantity, AvgBuyPrice: spec.AvgBuyPrice,
+			ManualPrice: spec.ManualPrice, Fees: spec.Fees, ManualCurrentValue: toNullDecimal(spec.ManualCurrentValue),
+			PurchaseDate: spec.PurchaseDate, EstimatedAnnualChangePct: spec.EstimatedAnnualChangePct,
+			ManualFxRate: toNullDecimal(spec.ManualFxRate), Details: details, CreatedByID: userID,
+			InstrumentID: instrument,
+		})
+	}
+
+	var inv sqlc.Investment
+	if spec.Funding == nil {
+		if inv, err = insert(s.q); err != nil {
+			return Item{}, err
+		}
+	} else {
+		cc, err := s.currency.BuildContext(ctx, spaceID)
+		if err != nil {
+			return Item{}, err
+		}
+		err = db.WithTx(ctx, s.db, func(tx pgx.Tx) error {
+			q := s.q.WithTx(tx)
+			var err error
+			if inv, err = insert(q); err != nil {
+				return err
+			}
+			return s.fundInitialPosition(ctx, tx, q, spaceID, userID, inv, *spec.Funding, cc)
+		})
+		if err != nil {
+			return Item{}, err
+		}
 	}
 	s.firstPrice(ctx, inv)
 	return s.item(ctx, inv)
+}
+
+// fundInitialPosition records the BUY that paid for a new investment's initial
+// position: the position goes from nothing to what was just stored.
+func (s *Service) fundInitialPosition(ctx context.Context, tx pgx.Tx, q *sqlc.Queries, spaceID, userID uuid.UUID, inv sqlc.Investment, f Funding, cc *currency.ConversionContext) error {
+	w, err := loadWallet(ctx, q, spaceID, f.WalletID)
+	if err != nil {
+		return err
+	}
+	l := Leg{Quantity: inv.Quantity, UnitPrice: inv.AvgBuyPrice, Fee: inv.Fees}
+	if !l.Gross().IsPositive() {
+		return validationErr("funding", "needs a quantity and an average buy price to pay for")
+	}
+	total := l.Gross().Add(l.Fee)
+	amount, rate, err := walletSide(w, strings.TrimSpace(inv.QuoteCurrency), total, f.Amount, nil, cc)
+	if err != nil {
+		return err
+	}
+	title := "Initial position " + inv.Name
+	if inv.Symbol != nil {
+		title = "Initial position " + *inv.Symbol
+	}
+	r := tradeResult{amount: amount, total: total, fxRate: rate, before: Position{}, after: PositionOf(inv)}
+	p, err := tradeParams(spaceID, userID, inv, w, ledger.ActionBuy, l, r, s.now(), nil, &title)
+	if err != nil {
+		return err
+	}
+	t, err := q.CreateTransaction(ctx, p)
+	if err != nil {
+		return err
+	}
+	return ledger.Apply(ctx, tx, t)
+}
+
+// RealizedPL is the realized profit/loss of an investment's SELLs.
+type RealizedPL struct {
+	Amount decimal.Decimal  // in the investment's quote currency
+	Base   *decimal.Decimal // converted to the space base currency; nil without an FX rate
+	Sells  int
+}
+
+func (s *Service) realized(ctx context.Context, spaceID uuid.UUID, cc *currency.ConversionContext, invs []sqlc.Investment) (map[uuid.UUID]RealizedPL, error) {
+	rows, err := s.q.RealizedPLByInvestment(ctx, spaceID)
+	if err != nil {
+		return nil, err
+	}
+	quote := map[uuid.UUID]string{}
+	for _, i := range invs {
+		quote[i.ID] = strings.TrimSpace(i.QuoteCurrency)
+	}
+	out := make(map[uuid.UUID]RealizedPL, len(rows))
+	for _, r := range rows {
+		if !r.InvestmentID.Valid {
+			continue
+		}
+		rp := RealizedPL{Amount: r.RealizedPl, Sells: int(r.Sells)}
+		if q, ok := quote[r.InvestmentID.UUID]; ok {
+			if base, err := currency.Convert(r.RealizedPl, q, cc.BaseCurrency, cc); err == nil {
+				rp.Base = &base
+			}
+		}
+		out[r.InvestmentID.UUID] = rp
+	}
+	return out, nil
 }
 
 // linkInstrument decides which market instrument an auto-priced investment points at.

@@ -15,6 +15,7 @@ import (
 
 	"github.com/JonathanRainee/hzzt/internal/db"
 	"github.com/JonathanRainee/hzzt/internal/db/sqlc"
+	"github.com/JonathanRainee/hzzt/internal/investments"
 	"github.com/JonathanRainee/hzzt/internal/ledger"
 	"github.com/JonathanRainee/hzzt/internal/platform/apperror"
 	"github.com/JonathanRainee/hzzt/internal/transactions"
@@ -41,20 +42,44 @@ type DB interface {
 	db.TxStarter
 }
 
-// Service holds transfer logic.
+// Service holds transfer logic: wallet-to-wallet transfers, and BUY/SELL of
+// investments through a wallet (delegated to package investments).
 type Service struct {
 	db  DB
 	q   *sqlc.Queries
 	txn *transactions.Service
+	inv *investments.Service
 	now func() time.Time
 }
 
 // NewService builds the service; now may be nil.
-func NewService(database DB, txn *transactions.Service, now func() time.Time) *Service {
+func NewService(database DB, txn *transactions.Service, inv *investments.Service, now func() time.Time) *Service {
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{db: database, q: sqlc.New(database), txn: txn, now: now}
+	return &Service{db: database, q: sqlc.New(database), txn: txn, inv: inv, now: now}
+}
+
+// Trade records a BUY or SELL and returns the transaction.
+func (s *Service) Trade(ctx context.Context, spaceID, userID uuid.UUID, in investments.TradeInput) (transactions.Detail, error) {
+	t, err := s.inv.Trade(ctx, spaceID, userID, in)
+	if err != nil {
+		return transactions.Detail{}, err
+	}
+	return s.txn.Get(ctx, spaceID, t.ID)
+}
+
+// isTrade reports whether the transaction is an investment BUY/SELL.
+func (s *Service) isTrade(ctx context.Context, spaceID, id uuid.UUID) bool {
+	d, err := s.txn.Get(ctx, spaceID, id)
+	return err == nil && d.InvestmentID.Valid && d.InvestmentAction != nil
+}
+
+func mapTradeErr(err error) error {
+	if errors.Is(err, investments.ErrNotATrade) {
+		return errTransferNF
+	}
+	return err
 }
 
 func nu(id uuid.UUID) uuid.NullUUID { return uuid.NullUUID{UUID: id, Valid: true} }
@@ -155,16 +180,30 @@ type Optional[T any] struct {
 	Value *T
 }
 
-// Patch is a partial update of a transfer.
+// InvestmentPatch is the investment side of an edit of a BUY/SELL.
+type InvestmentPatch struct {
+	InvestmentID             *uuid.UUID
+	Quantity, UnitPrice, Fee *decimal.Decimal
+}
+
+// Patch is a partial update of a transfer or of a BUY/SELL.
 type Patch struct {
 	FromWalletID, ToWalletID *uuid.UUID
 	Amount, ToAmount         *decimal.Decimal
 	OccurredAt               *time.Time
 	Note                     Optional[string]
+	// Investment carries the investment side of a BUY/SELL edit.
+	Investment *InvestmentPatch
 }
 
 // Update reverses the old transfer and applies the new one in the same database transaction.
 func (s *Service) Update(ctx context.Context, spaceID, id uuid.UUID, p Patch) (transactions.Detail, error) {
+	if s.isTrade(ctx, spaceID, id) {
+		return s.updateTrade(ctx, spaceID, id, p)
+	}
+	if p.Investment != nil {
+		return transactions.Detail{}, apperror.Unprocessable(CodeNotSupportedYet, "Investments are not part of a wallet transfer")
+	}
 	err := db.WithTx(ctx, s.db, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
 		old, err := q.GetTransactionForUpdate(ctx, sqlc.GetTransactionForUpdateParams{ID: id, SpaceID: spaceID})
@@ -234,8 +273,37 @@ func (s *Service) Update(ctx context.Context, spaceID, id uuid.UUID, p Patch) (t
 	return s.txn.Get(ctx, spaceID, id)
 }
 
-// Delete reverses the transfer and removes it.
+// updateTrade edits a BUY/SELL.
+func (s *Service) updateTrade(ctx context.Context, spaceID, id uuid.UUID, p Patch) (transactions.Detail, error) {
+	d, err := s.txn.Get(ctx, spaceID, id)
+	if err != nil {
+		return transactions.Detail{}, errTransferNF
+	}
+	tp := investments.TradePatch{Amount: p.Amount, OccurredAt: p.OccurredAt, NoteSet: p.Note.Set, Note: p.Note.Value}
+	if p.ToAmount != nil {
+		return transactions.Detail{}, apperror.Validation("Validation failed", map[string]any{"toAmount": "is not used for investment trades; use amount for the wallet side"})
+	}
+	tp.WalletID = p.FromWalletID
+	if tp.WalletID == nil {
+		tp.WalletID = p.ToWalletID
+	}
+	if iv := p.Investment; iv != nil {
+		if iv.InvestmentID != nil && *iv.InvestmentID != d.InvestmentID.UUID {
+			return transactions.Detail{}, apperror.Validation("Validation failed", map[string]any{"investmentId": "cannot be changed"})
+		}
+		tp.Quantity, tp.UnitPrice, tp.Fee = iv.Quantity, iv.UnitPrice, iv.Fee
+	}
+	if _, err := s.inv.UpdateTrade(ctx, spaceID, id, tp); err != nil {
+		return transactions.Detail{}, mapTradeErr(err)
+	}
+	return s.txn.Get(ctx, spaceID, id)
+}
+
+// Delete reverses the transfer (or BUY/SELL) and removes it.
 func (s *Service) Delete(ctx context.Context, spaceID, id uuid.UUID) error {
+	if s.isTrade(ctx, spaceID, id) {
+		return mapTradeErr(s.inv.DeleteTrade(ctx, spaceID, id))
+	}
 	return db.WithTx(ctx, s.db, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
 		old, err := q.GetTransactionForUpdate(ctx, sqlc.GetTransactionForUpdateParams{ID: id, SpaceID: spaceID})

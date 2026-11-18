@@ -75,28 +75,57 @@ func TestFinalize(t *testing.T) {
 	})
 }
 
-func TestDecodeEndpoint(t *testing.T) {
-	id := uuid.New()
-	got, err := decodeEndpoint("from", []byte(`{"type":"WALLET","walletId":"`+id.String()+`"}`))
-	require.NoError(t, err)
-	assert.Equal(t, id, got)
+func TestDecodeSide(t *testing.T) {
+	id, inv := uuid.New(), uuid.New()
 
-	_, err = decodeEndpoint("to", []byte(`{"type":"INVESTMENT","investmentId":"`+id.String()+`"}`))
-	assert.Equal(t, CodeNotSupportedYet, code(t, err))
-	_, err = decodeEndpoint("to", []byte(`{"type":"INVESTMENT"}`))
-	assert.Equal(t, CodeNotSupportedYet, code(t, err))
+	t.Run("wallet", func(t *testing.T) {
+		got, err := decodeSide("from", []byte(`{"type":"WALLET","walletId":"`+id.String()+`"}`), false)
+		require.NoError(t, err)
+		assert.Equal(t, id, got.wallet)
+		assert.Nil(t, got.investmentID)
+		assert.True(t, got.isWallet())
+	})
+
+	t.Run("investment leg", func(t *testing.T) {
+		got, err := decodeSide("to", []byte(`{"type":"INVESTMENT","investmentId":"`+inv.String()+`","quantity":"0.5","unitPrice":"60000","fee":"10"}`), false)
+		require.NoError(t, err)
+		require.NotNil(t, got.investmentID)
+		assert.Equal(t, inv, *got.investmentID)
+		assert.True(t, d("0.5").Equal(*got.quantity))
+		assert.True(t, d("60000").Equal(*got.unitPrice))
+		assert.True(t, d("10").Equal(*got.fee))
+		assert.False(t, got.isWallet())
+
+		got, err = decodeSide("to", []byte(`{"type":"INVESTMENT","investmentId":"`+inv.String()+`","quantity":1,"unitPrice":2}`), false)
+		require.NoError(t, err, "numeric JSON and an omitted fee are fine")
+		assert.Nil(t, got.fee)
+	})
+
+	t.Run("an edit may send any part of the investment leg", func(t *testing.T) {
+		got, err := decodeSide("to", []byte(`{"type":"INVESTMENT","quantity":"2"}`), true)
+		require.NoError(t, err)
+		assert.Nil(t, got.investmentID)
+		assert.True(t, d("2").Equal(*got.quantity))
+		assert.Nil(t, got.unitPrice)
+		_, err = decodeSide("to", []byte(`{"type":"INVESTMENT"}`), true)
+		assert.NoError(t, err)
+	})
 
 	for name, raw := range map[string]string{
-		"missing":       ``,
-		"null":          `null`,
-		"no type":       `{"walletId":"` + id.String() + `"}`,
-		"unknown type":  `{"type":"BANK"}`,
-		"no wallet id":  `{"type":"WALLET"}`,
-		"bad wallet id": `{"type":"WALLET","walletId":"x"}`,
-		"extra field":   `{"type":"WALLET","walletId":"` + id.String() + `","x":1}`,
-		"not an object": `"w"`,
+		"missing":                  ``,
+		"null":                     `null`,
+		"no type":                  `{"walletId":"` + id.String() + `"}`,
+		"unknown type":             `{"type":"BANK"}`,
+		"no wallet id":             `{"type":"WALLET"}`,
+		"bad wallet id":            `{"type":"WALLET","walletId":"x"}`,
+		"extra field":              `{"type":"WALLET","walletId":"` + id.String() + `","x":1}`,
+		"not an object":            `"w"`,
+		"investment: no id":        `{"type":"INVESTMENT","quantity":"1","unitPrice":"1"}`,
+		"investment: no qty":       `{"type":"INVESTMENT","investmentId":"` + inv.String() + `","unitPrice":"1"}`,
+		"investment: no price":     `{"type":"INVESTMENT","investmentId":"` + inv.String() + `","quantity":"1"}`,
+		"investment: wallet field": `{"type":"INVESTMENT","investmentId":"` + inv.String() + `","quantity":"1","unitPrice":"1","walletId":"` + id.String() + `"}`,
 	} {
-		_, err := decodeEndpoint("from", []byte(raw))
+		_, err := decodeSide("from", []byte(raw), false)
 		require.Error(t, err, name)
 		assert.Equal(t, apperror.CodeValidationFailed, code(t, err), name)
 	}

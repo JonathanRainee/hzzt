@@ -345,6 +345,10 @@ definitions:
         type: string
       fees:
         type: string
+      funding:
+        allOf:
+        - $ref: '#/definitions/investments.Funding'
+        description: Funding pays the initial position from a wallet (optional).
       icon:
         type: string
       manualCurrentValue:
@@ -393,6 +397,14 @@ definitions:
         type: array
       required:
         type: boolean
+    type: object
+  investments.Funding:
+    properties:
+      amount:
+        example: "1000000"
+        type: string
+      walletId:
+        type: string
     type: object
   investments.InvestmentDTO:
     properties:
@@ -444,6 +456,8 @@ definitions:
       quoteCurrency:
         example: IDR
         type: string
+      realizedPl:
+        $ref: '#/definitions/investments.RealizedPLDTO'
       symbol:
         type: string
       updatedAt:
@@ -503,6 +517,19 @@ definitions:
         type: string
       symbol:
         type: string
+    type: object
+  investments.RealizedPLDTO:
+    properties:
+      amount:
+        example: "5990"
+        type: string
+      base:
+        type: string
+      currency:
+        example: USD
+        type: string
+      sells:
+        type: integer
     type: object
   investments.Summary:
     properties:
@@ -735,6 +762,17 @@ definitions:
       transfer:
         type: string
     type: object
+  transactions.InvestmentRef:
+    properties:
+      icon:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      symbol:
+        type: string
+    type: object
   transactions.ListResponse:
     properties:
       items:
@@ -774,13 +812,29 @@ definitions:
         - IN
         - OUT
         type: string
+      fee:
+        type: string
       fxRate:
         type: string
       id:
         type: string
+      investment:
+        allOf:
+        - $ref: '#/definitions/transactions.InvestmentRef'
+        description: 'Investment trades: a BUY (wallet → investment) or SELL (investment
+          → wallet).'
+      investmentAction:
+        enum:
+        - BUY
+        - SELL
+        type: string
       note:
         type: string
       occurredAt:
+        type: string
+      quantity:
+        type: string
+      realizedPl:
         type: string
       title:
         type: string
@@ -797,6 +851,8 @@ definitions:
         - TRANSFER
         - ADJUSTMENT
         - OPENING_BALANCE
+        type: string
+      unitPrice:
         type: string
       updatedAt:
         type: string
@@ -864,6 +920,10 @@ definitions:
   transfers.createRequest:
     properties:
       amount:
+        description: |-
+          Amount is required between two wallets. For a BUY or SELL it is the wallet side
+          (debited / credited) and optional: it defaults to the trade value, converted
+          to the wallet's currency when needed.
         example: "100.00"
         type: string
       from:
@@ -878,8 +938,6 @@ definitions:
       toAmount:
         example: "1600000"
         type: string
-    required:
-    - amount
     type: object
   transfers.updateRequest:
     properties:
@@ -2356,7 +2414,10 @@ paths:
         picked from GET /market/crypto/search (CRYPTO) or GET /market/stocks/search
         (US_STOCK, GLOBAL_ETF), or the symbol is resolved to the highest-ranked coin
         / the exact ticker (422 INSTRUMENT_NOT_FOUND if none matches). Without a market
-        price the manual price is used.'
+        price the manual price is used. Optional `funding: {walletId, amount?}` pays
+        for the initial position from a wallet: it creates a BUY titled "Initial position
+        {symbol}" (wallet debited quantity × avgBuyPrice + fees, converted to the
+        wallet''s currency unless `amount` is given) in the same database transaction.'
       parameters:
       - description: Space ID
         in: path
@@ -2965,20 +3026,27 @@ paths:
     post:
       consumes:
       - application/json
-      description: '`from` and `to` are `{type:"WALLET", walletId}`. `toAmount` is
-        required when the wallets use different currencies (the stored rate is toAmount
-        / amount); for the same currency it must equal `amount` or be omitted. Negative
-        balances are allowed. `type:"INVESTMENT"` answers 422 NOT_SUPPORTED_YET until
-        investments can be transfer endpoints. Transfers never count as income or
-        expense; they show in the `transfer` column of the daily summary and in the
-        history of both wallets.'
+      description: '`from` and `to` are `{type:"WALLET", walletId}` or `{type:"INVESTMENT",
+        investmentId, quantity, unitPrice, fee?}`.\n\n**Wallet → wallet**: `toAmount`
+        is required when the wallets use different currencies (the stored rate is
+        toAmount / amount); for the same currency it must equal `amount` or be omitted.
+        Negative balances are allowed.\n\n**BUY** (wallet → investment): the wallet
+        is debited quantity × unitPrice + fee, converted to the wallet''s currency
+        unless `amount` is given; the position becomes new_qty = q + Δq and new_avg
+        = (q × avg + Δq × unitPrice) / new_qty, fees += fee.\n\n**SELL** (investment
+        → wallet): the wallet is credited quantity × unitPrice − fee; the average
+        stays; `realizedPl` = (unitPrice − avg) × Δq − fee. Selling more than quantity
+        − stakedQuantity answers 422 INSUFFICIENT_QUANTITY.\n\nInvestment → investment
+        is not supported. Transfers and trades never count as income or expense; they
+        show in the `transfer` column of the daily summary and in the history of the
+        wallet.'
       parameters:
       - description: Space ID
         in: path
         name: spaceId
         required: true
         type: string
-      - description: Transfer
+      - description: Transfer, BUY or SELL
         in: body
         name: body
         required: true
@@ -2996,20 +3064,23 @@ paths:
           schema:
             $ref: '#/definitions/httpx.ErrorEnvelope'
         "404":
-          description: space or wallet not found
+          description: space, wallet or investment not found
           schema:
             $ref: '#/definitions/httpx.ErrorEnvelope'
         "422":
           description: TRANSFER_SAME_WALLET / TRANSFER_AMOUNT_REQUIRED / NOT_SUPPORTED_YET
+            / INSUFFICIENT_QUANTITY / FX_RATE_UNAVAILABLE
           schema:
             $ref: '#/definitions/httpx.ErrorEnvelope'
       security:
       - BearerAuth: []
-      summary: Transfer between wallets
+      summary: Transfer between wallets, or buy/sell an investment through a wallet
       tags:
       - transfers
   /spaces/{spaceId}/transfers/{id}:
     delete:
+      description: A BUY/SELL can only be deleted while the investment's position
+        is still the one it left behind (409 POSITION_CHANGED_SINCE).
       parameters:
       - description: Space ID
         in: path
@@ -3028,17 +3099,25 @@ paths:
           description: Not Found
           schema:
             $ref: '#/definitions/httpx.ErrorEnvelope'
+        "409":
+          description: POSITION_CHANGED_SINCE
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
       security:
       - BearerAuth: []
-      summary: Delete a transfer (both balances are restored)
+      summary: Delete a transfer, BUY or SELL (balances and position are restored)
       tags:
       - transfers
     patch:
       consumes:
       - application/json
       description: Any field may be sent; the old effect is reversed and the new one
-        applied atomically. Changing the amount or either wallet of a cross-currency
-        transfer requires `toAmount`.
+        applied atomically. For wallet transfers, changing the amount or either wallet
+        of a cross-currency transfer requires `toAmount`. For a BUY/SELL, send the
+        investment side as `{type:"INVESTMENT", quantity?, unitPrice?, fee?}` and
+        the wallet side as `{type:"WALLET", walletId}`; the investment itself cannot
+        change. A BUY/SELL can only be edited (or deleted) while the investment's
+        position is still the one it left behind, otherwise 409 POSITION_CHANGED_SINCE.
       parameters:
       - description: Space ID
         in: path
@@ -3071,13 +3150,18 @@ paths:
           description: Not Found
           schema:
             $ref: '#/definitions/httpx.ErrorEnvelope'
+        "409":
+          description: POSITION_CHANGED_SINCE
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
         "422":
           description: TRANSFER_SAME_WALLET / TRANSFER_AMOUNT_REQUIRED / NOT_SUPPORTED_YET
+            / INSUFFICIENT_QUANTITY
           schema:
             $ref: '#/definitions/httpx.ErrorEnvelope'
       security:
       - BearerAuth: []
-      summary: Edit a transfer
+      summary: Edit a transfer, BUY or SELL
       tags:
       - transfers
   /spaces/{spaceId}/wallets:
