@@ -273,7 +273,7 @@ Full field lists are defined in each phase. This is the map.
 | P1 | Project foundation | P0 | M1 Foundation & Auth | Done |
 | P2 | Authentication | P1 | M1 | Done |
 | P3 | Users, profile & spaces | P2 | M1 | Done |
-| P4 | Preferences & app lock | P3 | M1 | Backlog |
+| P4 | Preferences & app lock | P3 | M1 | Done |
 | P5 | Currency & FX | P3 | M2 Money core | Backlog |
 | P6 | Categories & budgets | P3 | M2 | Backlog |
 | P7 | Wallets & ledger foundation | P5 | M2 | Backlog |
@@ -1073,6 +1073,8 @@ DELIVERABLES (report back)
 | OWNERSHIP_TRANSFER_REQUIRED, LAST_SPACE, OWNER_CANNOT_LEAVE | 422 | P3 |
 | INVITATION_INVALID, INVITATION_EXPIRED, ALREADY_A_MEMBER, SPACE_MEMBER_LIMIT | 422/409 | P3 |
 | APP_LOCK_TEMPORARILY_LOCKED, APP_LOCK_NOT_ENABLED | 429/422 | P4 |
+| APP_LOCK_ALREADY_ENABLED | 409 | P4 |
+| INVALID_PIN | 422 | P4 |
 | FX_RATE_UNAVAILABLE | 422 (internal; normally surfaced as a warning) | P5 |
 | CATEGORY_NAME_TAKEN, BUDGET_NOT_ALLOWED, CATEGORY_TYPE_LOCKED, CATEGORY_TYPE_MISMATCH | 409/422 | P6, P8 |
 | WALLET_CURRENCY_LOCKED, WALLET_HAS_BALANCE | 422 | P7 |
