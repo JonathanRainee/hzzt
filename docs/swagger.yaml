@@ -187,6 +187,30 @@ definitions:
         - INCOME
         type: string
     type: object
+  currency.AggregateResult:
+    properties:
+      breakdown:
+        items:
+          $ref: '#/definitions/currency.BreakdownEntry'
+        type: array
+      currency:
+        type: string
+      total:
+        type: number
+      warnings:
+        items:
+          $ref: '#/definitions/currency.Warning'
+        type: array
+    type: object
+  currency.BreakdownEntry:
+    properties:
+      converted:
+        type: number
+      currency:
+        type: string
+      original:
+        type: number
+    type: object
   currency.Currency:
     properties:
       code:
@@ -226,6 +250,15 @@ definitions:
         example: "16000"
         type: string
       updatedAt:
+        type: string
+    type: object
+  currency.Warning:
+    properties:
+      code:
+        type: string
+      label:
+        type: string
+      message:
         type: string
     type: object
   currency.putManualRequest:
@@ -430,6 +463,172 @@ definitions:
         type: string
     required:
     - pin
+    type: object
+  wallets.CardStyle:
+    properties:
+      color:
+        example: '#4480EE'
+        type: string
+      colors:
+        items:
+          type: string
+        type: array
+      direction:
+        enum:
+        - "N"
+        - NE
+        - E
+        - SE
+        - S
+        - SW
+        - W
+        - NW
+        type: string
+      mode:
+        enum:
+        - SOLID
+        - GRADIENT
+        - TEMPLATE
+        type: string
+      presetId:
+        type: string
+      templateId:
+        type: string
+    type: object
+  wallets.ListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/wallets.WalletDTO'
+        type: array
+      total:
+        $ref: '#/definitions/currency.AggregateResult'
+    type: object
+  wallets.Preset:
+    properties:
+      colors:
+        items:
+          type: string
+        type: array
+      direction:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+    type: object
+  wallets.Template:
+    properties:
+      id:
+        type: string
+      name:
+        type: string
+    type: object
+  wallets.WalletDTO:
+    properties:
+      balance:
+        example: "134.26"
+        type: string
+      cardStyle:
+        $ref: '#/definitions/wallets.CardStyle'
+      createdAt:
+        type: string
+      currency:
+        example: IDR
+        type: string
+      icon:
+        type: string
+      id:
+        type: string
+      isFavorite:
+        type: boolean
+      name:
+        type: string
+      sortOrder:
+        type: integer
+      type:
+        enum:
+        - BANK
+        - E_WALLET
+        - CASH
+        - OTHER
+        type: string
+    type: object
+  wallets.createRequest:
+    properties:
+      cardStyle:
+        type: object
+      currency:
+        maxLength: 8
+        type: string
+      icon:
+        maxLength: 64
+        type: string
+      initialBalance:
+        example: "134.26"
+        type: string
+      isFavorite:
+        type: boolean
+      name:
+        maxLength: 120
+        minLength: 1
+        type: string
+      type:
+        enum:
+        - BANK
+        - E_WALLET
+        - CASH
+        - OTHER
+        type: string
+    required:
+    - icon
+    - name
+    - type
+    type: object
+  wallets.reorderRequest:
+    properties:
+      ids:
+        items:
+          type: string
+        maxItems: 500
+        type: array
+    required:
+    - ids
+    type: object
+  wallets.setBalanceRequest:
+    properties:
+      newBalance:
+        example: "100"
+        type: string
+      note:
+        maxLength: 500
+        type: string
+    required:
+    - newBalance
+    type: object
+  wallets.updateRequest:
+    properties:
+      cardStyle:
+        type: object
+      currency:
+        maxLength: 8
+        type: string
+      icon:
+        maxLength: 64
+        type: string
+      isFavorite:
+        type: boolean
+      name:
+        maxLength: 120
+        minLength: 1
+        type: string
+      type:
+        enum:
+        - BANK
+        - E_WALLET
+        - CASH
+        - OTHER
+        type: string
     type: object
 info:
   contact: {}
@@ -1617,6 +1816,289 @@ paths:
       summary: Remove a member (OWNER) or leave the space (self)
       tags:
       - spaces
+  /spaces/{spaceId}/wallets:
+    get:
+      description: Favorites first, then sortOrder. `total` is converted to the space
+        base currency; wallets without a usable FX rate are left out and reported
+        in `total.warnings`.
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/wallets.ListResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: List wallets with the converted total
+      tags:
+      - wallets
+    post:
+      consumes:
+      - application/json
+      description: A non-zero initialBalance creates an OPENING_BALANCE transaction.
+        cardStyle is `{mode:"SOLID",color}`, `{mode:"GRADIENT",colors:[a,b],direction,presetId?}`
+        or `{mode:"TEMPLATE",templateId}`.
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Wallet
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/wallets.createRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/wallets.WalletDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Create a wallet
+      tags:
+      - wallets
+  /spaces/{spaceId}/wallets/{id}:
+    delete:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Wallet ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Required when the balance is not zero
+        in: query
+        name: force
+        type: boolean
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "422":
+          description: WALLET_HAS_BALANCE
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Delete a wallet (soft delete)
+      tags:
+      - wallets
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Wallet ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/wallets.WalletDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Get a wallet
+      tags:
+      - wallets
+    patch:
+      consumes:
+      - application/json
+      description: The currency can only change while the wallet has no transactions
+        (WALLET_CURRENCY_LOCKED). Use PUT .../balance to change the balance.
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Wallet ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to change
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/wallets.updateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/wallets.WalletDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "422":
+          description: WALLET_CURRENCY_LOCKED
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Update a wallet
+      tags:
+      - wallets
+  /spaces/{spaceId}/wallets/{id}/balance:
+    put:
+      consumes:
+      - application/json
+      description: Records an ADJUSTMENT (direction IN/OUT) for the difference; an
+        unchanged balance records nothing.
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Wallet ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: New balance
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/wallets.setBalanceRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/wallets.WalletDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Set the wallet balance
+      tags:
+      - wallets
+  /spaces/{spaceId}/wallets/order:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Every wallet id in the new order
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/wallets.reorderRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/wallets.ListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Set the wallet display order
+      tags:
+      - wallets
+  /wallet-card-presets:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/wallets.Preset'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: Gradient presets for wallet cards
+      tags:
+      - wallets
+  /wallet-card-templates:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/wallets.Template'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: Template ids for wallet cards (images are frontend assets)
+      tags:
+      - wallets
 schemes:
 - http
 - https

@@ -145,6 +145,13 @@ func DecodeDiscriminated[T any](r *http.Request, field string, variants map[stri
 	if err != nil {
 		return zero, err
 	}
+	return DecodeDiscriminatedBytes(b, field, variants)
+}
+
+// DecodeDiscriminatedBytes is DecodeDiscriminated for an already-read JSON
+// value, e.g. a nested object such as a wallet's cardStyle.
+func DecodeDiscriminatedBytes[T any](b []byte, field string, variants map[string]func() T) (T, error) {
+	var zero T
 
 	var head map[string]json.RawMessage
 	if err := json.Unmarshal(b, &head); err != nil {

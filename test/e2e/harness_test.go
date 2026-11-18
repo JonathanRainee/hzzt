@@ -34,6 +34,7 @@ import (
 	"github.com/JonathanRainee/hzzt/internal/server"
 	"github.com/JonathanRainee/hzzt/internal/spaces"
 	"github.com/JonathanRainee/hzzt/internal/users"
+	"github.com/JonathanRainee/hzzt/internal/wallets"
 )
 
 var testPool *pgxpool.Pool
@@ -153,10 +154,20 @@ func newTestServer(t *testing.T, limits auth.Limits, userLimits users.Limits) *T
 	categoriesSvc := categories.NewService(tx)
 	categoriesSvc.Subscribe(bus)
 	categoriesHandler := categories.NewHandler(categoriesSvc, svc, spacesSvc)
-	srv := httptest.NewServer(server.NewRouter(cfg, log, sqlc.New(tx), handler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount))
+	walletsSvc := wallets.NewService(tx, currencySvc, clock.Now)
+	walletsHandler := wallets.NewHandler(walletsSvc, svc, spacesSvc)
+	srv := httptest.NewServer(server.NewRouter(cfg, log, sqlc.New(tx), handler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount, walletsHandler.Mount))
 	t.Cleanup(srv.Close)
 
-	return &TestServer{Server: srv, Tx: tx, Email: mail, Events: bus, Auth: svc, Clock: clock, FX: fx, Currency: currencySvc, Categories: categoriesSvc, t: t}
+	ts := &TestServer{Server: srv, Tx: tx, Email: mail, Events: bus, Auth: svc, Clock: clock, FX: fx, Currency: currencySvc, Categories: categoriesSvc, t: t}
+	// Registered after the rollback cleanup, so it runs first: the ledger
+	// invariant must hold at the end of every test.
+	t.Cleanup(func() {
+		if !t.Failed() {
+			ts.ExpectAllLedgersConsistent()
+		}
+	})
+	return ts
 }
 
 // Response is a fully read HTTP response.

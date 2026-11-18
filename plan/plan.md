@@ -276,7 +276,7 @@ Full field lists are defined in each phase. This is the map.
 | P4 | Preferences & app lock | P3 | M1 | Done |
 | P5 | Currency & FX | P3 | M2 Money core | Done |
 | P6 | Categories & budgets | P3 | M2 | Done |
-| P7 | Wallets & ledger foundation | P5 | M2 | Backlog |
+| P7 | Wallets & ledger foundation | P5 | M2 | Done |
 | P8 | Income/expense transactions & querying | P6, P7 | M2 | Backlog |
 | P9 | Wallet-to-wallet transfers | P8 | M2 | Backlog |
 | P10 | Investments core (manual pricing) | P5 | M3 Investments | Backlog |

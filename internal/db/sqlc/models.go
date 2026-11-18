@@ -98,6 +98,36 @@ type SpaceMember struct {
 	JoinedAt time.Time `json:"joined_at"`
 }
 
+type Transaction struct {
+	ID               uuid.UUID           `json:"id"`
+	SpaceID          uuid.UUID           `json:"space_id"`
+	Type             string              `json:"type"`
+	Direction        *string             `json:"direction"`
+	Title            *string             `json:"title"`
+	Note             *string             `json:"note"`
+	Amount           decimal.Decimal     `json:"amount"`
+	Currency         string              `json:"currency"`
+	WalletID         uuid.NullUUID       `json:"wallet_id"`
+	CategoryID       uuid.NullUUID       `json:"category_id"`
+	OccurredAt       time.Time           `json:"occurred_at"`
+	CreatedByID      uuid.UUID           `json:"created_by_id"`
+	CreatedAt        time.Time           `json:"created_at"`
+	UpdatedAt        time.Time           `json:"updated_at"`
+	ToWalletID       uuid.NullUUID       `json:"to_wallet_id"`
+	ToAmount         decimal.NullDecimal `json:"to_amount"`
+	ToCurrency       *string             `json:"to_currency"`
+	FxRate           decimal.NullDecimal `json:"fx_rate"`
+	InvestmentID     uuid.NullUUID       `json:"investment_id"`
+	InvestmentAction *string             `json:"investment_action"`
+	Quantity         decimal.NullDecimal `json:"quantity"`
+	UnitPrice        decimal.NullDecimal `json:"unit_price"`
+	Fee              decimal.NullDecimal `json:"fee"`
+	RealizedPl       decimal.NullDecimal `json:"realized_pl"`
+	PositionBefore   []byte              `json:"position_before"`
+	PositionAfter    []byte              `json:"position_after"`
+	ManualAssetID    uuid.NullUUID       `json:"manual_asset_id"`
+}
+
 type User struct {
 	ID                uuid.UUID     `json:"id"`
 	Email             string        `json:"email"`
@@ -119,4 +149,21 @@ type UserPreference struct {
 	AppLockFailedAttempts int32      `json:"app_lock_failed_attempts"`
 	AppLockLockedUntil    *time.Time `json:"app_lock_locked_until"`
 	UpdatedAt             time.Time  `json:"updated_at"`
+}
+
+type Wallet struct {
+	ID          uuid.UUID       `json:"id"`
+	SpaceID     uuid.UUID       `json:"space_id"`
+	Type        string          `json:"type"`
+	Name        string          `json:"name"`
+	Icon        string          `json:"icon"`
+	Currency    string          `json:"currency"`
+	Balance     decimal.Decimal `json:"balance"`
+	IsFavorite  bool            `json:"is_favorite"`
+	SortOrder   int32           `json:"sort_order"`
+	CardStyle   []byte          `json:"card_style"`
+	CreatedByID uuid.UUID       `json:"created_by_id"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+	DeletedAt   *time.Time      `json:"deleted_at"`
 }
