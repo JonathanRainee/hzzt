@@ -1809,6 +1809,257 @@
                 }
             }
         },
+        "/spaces/{spaceId}/dashboard/analytics": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "For a month-length period the bars are days 1–7, 8–14, 15–21, 22–28 and 29–end of the period (the last one is labelled e.g. \"29–30 Nov\"); THIS_YEAR and other long ranges give one bar per calendar month; up to 14 days give one bar per day. Days are the user's local days; amounts are in the space base currency.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "dashboard"
+                ],
+                "summary": "Income and expense bars for a period",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Period preset (default THIS_PERIOD)",
+                        "name": "period",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start date (YYYY-MM-DD)",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End date, inclusive (YYYY-MM-DD)",
+                        "name": "to",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/dashboard.AnalyticsDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/spaces/{spaceId}/dashboard/calendar": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Every day of the month is listed (days without transactions are zero), grouped by the user's local date and converted to the space base currency.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "dashboard"
+                ],
+                "summary": "Income, expense and transaction count per local day of a month",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Month (YYYY-MM)",
+                        "name": "month",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/dashboard.CalendarDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/spaces/{spaceId}/dashboard/category-breakdown": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Per category: amount (space base currency), pct of the total and transaction count, largest first; transactions without a category are reported as `uncategorized`. Deleted categories still appear for their historical transactions.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "dashboard"
+                ],
+                "summary": "Income or expense of a period by category",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Period preset (default THIS_PERIOD)",
+                        "name": "period",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start date (YYYY-MM-DD)",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End date, inclusive (YYYY-MM-DD)",
+                        "name": "to",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "EXPENSE (default) or INCOME",
+                        "name": "type",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/dashboard.BreakdownDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/spaces/{spaceId}/dashboard/overview": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Totals are converted to the space base currency and cover INCOME and EXPENSE transactions only (transfers, trades, settlements, adjustments and opening balances are excluded). `period` is a preset (TODAY, THIS_WEEK, THIS_PERIOD (default), LAST_7_DAYS ... THIS_YEAR, ALL_TIME) or use `from`/`to` (YYYY-MM-DD, inclusive). The previous period is the one right before (yesterday, last week, the previous budget period, the N days before, last year; for a custom range the same length before it). Percentage changes are null when the previous value is 0.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "dashboard"
+                ],
+                "summary": "Income and expense of a period compared with the previous one",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Period preset",
+                        "name": "period",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start date (YYYY-MM-DD)",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End date, inclusive (YYYY-MM-DD)",
+                        "name": "to",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/dashboard.OverviewDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/spaces/{spaceId}/fx/manual-rates": {
             "get": {
                 "security": [
@@ -3470,6 +3721,58 @@
                 }
             }
         },
+        "/spaces/{spaceId}/net-worth/history": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Daily snapshots (stored at 00:15 UTC, one per UTC date) in the space's current base currency, plus a live point for today, at most about 120 points (evenly downsampled, first and last kept). A space created today returns just the live point. `changePct` is the change from the first to the last point.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "net-worth"
+                ],
+                "summary": "Net-worth history for a range",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "1M, 3M, 6M, 1Y or ALL (default 1M)",
+                        "name": "range",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/networth.HistoryDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/spaces/{spaceId}/net-worth/summary": {
             "get": {
                 "security": [
@@ -5043,6 +5346,247 @@
                 }
             }
         },
+        "dashboard.AnalyticsDTO": {
+            "type": "object",
+            "properties": {
+                "buckets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.BucketDTO"
+                    }
+                },
+                "currency": {
+                    "type": "string",
+                    "example": "USD"
+                },
+                "period": {
+                    "$ref": "#/definitions/dashboard.PeriodDTO"
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/currency.Warning"
+                    }
+                }
+            }
+        },
+        "dashboard.BreakdownDTO": {
+            "type": "object",
+            "properties": {
+                "currency": {
+                    "type": "string",
+                    "example": "USD"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.CategoryShareDTO"
+                    }
+                },
+                "period": {
+                    "$ref": "#/definitions/dashboard.PeriodDTO"
+                },
+                "total": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string",
+                    "enum": [
+                        "EXPENSE",
+                        "INCOME"
+                    ]
+                },
+                "uncategorized": {
+                    "$ref": "#/definitions/dashboard.CategoryShareDTO"
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/currency.Warning"
+                    }
+                }
+            }
+        },
+        "dashboard.BucketDTO": {
+            "type": "object",
+            "properties": {
+                "expense": {
+                    "type": "string"
+                },
+                "fromDate": {
+                    "type": "string",
+                    "example": "2026-11-29"
+                },
+                "income": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string",
+                    "example": "29–30 Nov"
+                },
+                "toDate": {
+                    "type": "string",
+                    "example": "2026-11-30"
+                }
+            }
+        },
+        "dashboard.CalendarDTO": {
+            "type": "object",
+            "properties": {
+                "currency": {
+                    "type": "string",
+                    "example": "USD"
+                },
+                "days": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dashboard.DayDTO"
+                    }
+                },
+                "month": {
+                    "type": "string",
+                    "example": "2026-11"
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/currency.Warning"
+                    }
+                }
+            }
+        },
+        "dashboard.CategoryShareDTO": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "type": "string"
+                },
+                "categoryId": {
+                    "type": "string"
+                },
+                "color": {
+                    "type": "string"
+                },
+                "count": {
+                    "type": "integer"
+                },
+                "icon": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "pct": {
+                    "description": "a percentage of the total",
+                    "type": "string",
+                    "example": "42.5"
+                }
+            }
+        },
+        "dashboard.ChangeDTO": {
+            "type": "object",
+            "properties": {
+                "expensePct": {
+                    "type": "string"
+                },
+                "incomePct": {
+                    "type": "string"
+                },
+                "netPct": {
+                    "type": "string"
+                }
+            }
+        },
+        "dashboard.DayDTO": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "date": {
+                    "type": "string",
+                    "example": "2026-11-18"
+                },
+                "expense": {
+                    "type": "string"
+                },
+                "income": {
+                    "type": "string"
+                },
+                "net": {
+                    "type": "string"
+                }
+            }
+        },
+        "dashboard.OverviewDTO": {
+            "type": "object",
+            "properties": {
+                "change": {
+                    "$ref": "#/definitions/dashboard.ChangeDTO"
+                },
+                "currency": {
+                    "type": "string",
+                    "example": "USD"
+                },
+                "expense": {
+                    "type": "string"
+                },
+                "income": {
+                    "type": "string"
+                },
+                "net": {
+                    "type": "string"
+                },
+                "period": {
+                    "$ref": "#/definitions/dashboard.PeriodDTO"
+                },
+                "previous": {
+                    "description": "null for ALL_TIME",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/dashboard.TotalsDTO"
+                        }
+                    ]
+                },
+                "transactionCount": {
+                    "type": "integer"
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/currency.Warning"
+                    }
+                }
+            }
+        },
+        "dashboard.PeriodDTO": {
+            "type": "object",
+            "properties": {
+                "from": {
+                    "type": "string"
+                },
+                "to": {
+                    "type": "string"
+                }
+            }
+        },
+        "dashboard.TotalsDTO": {
+            "type": "object",
+            "properties": {
+                "expense": {
+                    "type": "string"
+                },
+                "income": {
+                    "type": "string"
+                },
+                "net": {
+                    "type": "string"
+                },
+                "transactionCount": {
+                    "type": "integer"
+                }
+            }
+        },
         "goals.AllocationDTO": {
             "type": "object",
             "properties": {
@@ -6160,6 +6704,35 @@
                 }
             }
         },
+        "networth.HistoryDTO": {
+            "type": "object",
+            "properties": {
+                "changePct": {
+                    "description": "first → last point, a percentage; null when it cannot be computed",
+                    "type": "string"
+                },
+                "currency": {
+                    "type": "string",
+                    "example": "USD"
+                },
+                "points": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/networth.PointDTO"
+                    }
+                },
+                "range": {
+                    "type": "string",
+                    "enum": [
+                        "1M",
+                        "3M",
+                        "6M",
+                        "1Y",
+                        "ALL"
+                    ]
+                }
+            }
+        },
         "networth.InvestmentsDTO": {
             "type": "object",
             "properties": {
@@ -6174,6 +6747,22 @@
                     "type": "string"
                 },
                 "value": {
+                    "type": "string"
+                }
+            }
+        },
+        "networth.PointDTO": {
+            "type": "object",
+            "properties": {
+                "date": {
+                    "type": "string",
+                    "example": "2026-11-18"
+                },
+                "live": {
+                    "description": "the point computed now for today",
+                    "type": "boolean"
+                },
+                "netWorth": {
                     "type": "string"
                 }
             }
