@@ -8,7 +8,26 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 )
+
+type FxRate struct {
+	Base      string          `json:"base"`
+	Quote     string          `json:"quote"`
+	Rate      decimal.Decimal `json:"rate"`
+	AsOf      time.Time       `json:"as_of"`
+	Source    string          `json:"source"`
+	FetchedAt time.Time       `json:"fetched_at"`
+}
+
+type ManualFxRate struct {
+	SpaceID     uuid.UUID       `json:"space_id"`
+	Base        string          `json:"base"`
+	Quote       string          `json:"quote"`
+	Rate        decimal.Decimal `json:"rate"`
+	UpdatedByID uuid.UUID       `json:"updated_by_id"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+}
 
 type PasswordResetToken struct {
 	ID        uuid.UUID  `json:"id"`

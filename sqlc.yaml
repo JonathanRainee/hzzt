@@ -16,11 +16,19 @@ sql:
             go_struct_tag: 'json:"-"'
           - column: user_preferences.app_lock_pin_hash
             go_struct_tag: 'json:"-"'
-          - db_type: numeric
+          - db_type: "pg_catalog.numeric"
             go_type: github.com/shopspring/decimal.Decimal
-          - db_type: numeric
+          - db_type: "pg_catalog.numeric"
             nullable: true
             go_type: github.com/shopspring/decimal.NullDecimal
+          - db_type: date
+            go_type: time.Time
+          - db_type: date
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true
           - db_type: uuid
             go_type: github.com/google/uuid.UUID
           - db_type: uuid
