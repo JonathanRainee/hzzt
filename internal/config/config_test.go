@@ -113,3 +113,25 @@ func TestCMCRefreshMinutes(t *testing.T) {
 		assert.Contains(t, err.Error(), "CMC_REFRESH_MINUTES")
 	}
 }
+
+func TestMassiveSettings(t *testing.T) {
+	c, err := LoadFrom(env(valid()))
+	require.NoError(t, err)
+	assert.Equal(t, 5, c.MassiveRatePerMinute)
+	assert.Equal(t, "EOD", c.MassiveMode)
+
+	m := valid()
+	m["MASSIVE_RATE_PER_MIN"] = "100"
+	m["MASSIVE_MODE"] = "snapshot"
+	c, err = LoadFrom(env(m))
+	require.NoError(t, err)
+	assert.Equal(t, 100, c.MassiveRatePerMinute)
+	assert.Equal(t, "SNAPSHOT", c.MassiveMode, "the mode is case-insensitive")
+
+	for _, bad := range []string{"0", "-1", "x", "7000"} {
+		m["MASSIVE_RATE_PER_MIN"] = bad
+		_, err = LoadFrom(env(m))
+		require.Error(t, err, bad)
+		assert.Contains(t, err.Error(), "MASSIVE_RATE_PER_MIN")
+	}
+}

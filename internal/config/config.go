@@ -35,6 +35,8 @@ type Config struct {
 	CMCRefreshMinutes int
 	MassiveAPIKey     string
 	MassiveMode       string
+	// MassiveRatePerMinute is the client-side request budget for Massive.
+	MassiveRatePerMinute int
 
 	FXProvider         string
 	FreeCurrencyAPIKey string
@@ -156,6 +158,17 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 			fail("CMC_REFRESH_MINUTES must be an integer between 1 and 1440, got %q", v)
 		} else {
 			c.CMCRefreshMinutes = n
+		}
+	}
+
+	// Massive request budget (free tier: 5 per minute)
+	c.MassiveRatePerMinute = 5
+	if v := str("MASSIVE_RATE_PER_MIN", ""); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 6000 {
+			fail("MASSIVE_RATE_PER_MIN must be an integer between 1 and 6000, got %q", v)
+		} else {
+			c.MassiveRatePerMinute = n
 		}
 	}
 
