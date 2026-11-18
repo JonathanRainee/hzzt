@@ -233,6 +233,40 @@ func (q *Queries) ListInvestments(ctx context.Context, arg ListInvestmentsParams
 	return items, nil
 }
 
+const realizedPLByInvestment = `-- name: RealizedPLByInvestment :many
+SELECT t.investment_id, COALESCE(sum(t.realized_pl), 0)::numeric(28,8) AS realized_pl, count(*)::int AS sells
+FROM transactions t
+WHERE t.space_id = $1 AND t.investment_action = 'SELL' AND t.investment_id IS NOT NULL
+GROUP BY t.investment_id
+`
+
+type RealizedPLByInvestmentRow struct {
+	InvestmentID uuid.NullUUID   `json:"investment_id"`
+	RealizedPl   decimal.Decimal `json:"realized_pl"`
+	Sells        int32           `json:"sells"`
+}
+
+// Realized profit/loss of every SELL, summed per investment (in each investment's quote currency).
+func (q *Queries) RealizedPLByInvestment(ctx context.Context, spaceID uuid.UUID) ([]RealizedPLByInvestmentRow, error) {
+	rows, err := q.db.Query(ctx, realizedPLByInvestment, spaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []RealizedPLByInvestmentRow{}
+	for rows.Next() {
+		var i RealizedPLByInvestmentRow
+		if err := rows.Scan(&i.InvestmentID, &i.RealizedPl, &i.Sells); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const softDeleteInvestment = `-- name: SoftDeleteInvestment :execrows
 UPDATE investments SET deleted_at = now(), updated_at = now()
 WHERE id = $1 AND space_id = $2 AND deleted_at IS NULL
@@ -300,6 +334,59 @@ func (q *Queries) UpdateInvestment(ctx context.Context, arg UpdateInvestmentPara
 		arg.ManualCurrentValue,
 		arg.PurchaseDate,
 		arg.ManualFxRate,
+	)
+	var i Investment
+	err := row.Scan(
+		&i.ID,
+		&i.SpaceID,
+		&i.AssetType,
+		&i.PriceMode,
+		&i.Name,
+		&i.Symbol,
+		&i.Icon,
+		&i.QuoteCurrency,
+		&i.Quantity,
+		&i.AvgBuyPrice,
+		&i.ManualPrice,
+		&i.Fees,
+		&i.ManualCurrentValue,
+		&i.PurchaseDate,
+		&i.EstimatedAnnualChangePct,
+		&i.ManualFxRate,
+		&i.Details,
+		&i.InstrumentID,
+		&i.IsShared,
+		&i.CreatedByID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const updateInvestmentPosition = `-- name: UpdateInvestmentPosition :one
+UPDATE investments SET quantity = $3, avg_buy_price = $4, fees = $5, details = $6, updated_at = now()
+WHERE id = $1 AND space_id = $2 AND deleted_at IS NULL
+RETURNING id, space_id, asset_type, price_mode, name, symbol, icon, quote_currency, quantity, avg_buy_price, manual_price, fees, manual_current_value, purchase_date, estimated_annual_change_pct, manual_fx_rate, details, instrument_id, is_shared, created_by_id, created_at, updated_at, deleted_at
+`
+
+type UpdateInvestmentPositionParams struct {
+	ID          uuid.UUID       `json:"id"`
+	SpaceID     uuid.UUID       `json:"space_id"`
+	Quantity    decimal.Decimal `json:"quantity"`
+	AvgBuyPrice decimal.Decimal `json:"avg_buy_price"`
+	Fees        decimal.Decimal `json:"fees"`
+	Details     []byte          `json:"details"`
+}
+
+func (q *Queries) UpdateInvestmentPosition(ctx context.Context, arg UpdateInvestmentPositionParams) (Investment, error) {
+	row := q.db.QueryRow(ctx, updateInvestmentPosition,
+		arg.ID,
+		arg.SpaceID,
+		arg.Quantity,
+		arg.AvgBuyPrice,
+		arg.Fees,
+		arg.Details,
 	)
 	var i Investment
 	err := row.Scan(

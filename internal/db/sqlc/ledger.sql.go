@@ -39,6 +39,9 @@ SELECT (
         WHEN t.type = 'EXPENSE' THEN -t.amount
         WHEN t.type IN ('ADJUSTMENT', 'OPENING_BALANCE') AND t.direction = 'IN' THEN t.amount
         WHEN t.type IN ('ADJUSTMENT', 'OPENING_BALANCE') AND t.direction = 'OUT' THEN -t.amount
+        -- BUY debits the wallet, SELL credits it (the investment side has no wallet)
+        WHEN t.type = 'TRANSFER' AND t.investment_action = 'BUY' THEN -t.amount
+        WHEN t.type = 'TRANSFER' AND t.investment_action = 'SELL' THEN t.amount
         WHEN t.type = 'TRANSFER' THEN -t.amount
         ELSE 0 END)
       FROM transactions t WHERE t.wallet_id = $1), 0)

@@ -28,6 +28,10 @@ const (
 
 	DirectionIn  = "IN"
 	DirectionOut = "OUT"
+
+	// Investment actions on TRANSFER transactions.
+	ActionBuy  = "BUY"
+	ActionSell = "SELL"
 )
 
 // Delta is a signed change to one wallet's balance.
@@ -76,6 +80,18 @@ func Deltas(t sqlc.Transaction) ([]Delta, error) {
 		w, err := need()
 		if err != nil {
 			return nil, err
+		}
+		// An investment BUY/SELL is a transfer between a wallet and an investment:
+		// only the wallet side exists in the ledger.
+		if t.InvestmentAction != nil {
+			switch *t.InvestmentAction {
+			case ActionBuy:
+				return []Delta{{w, t.Amount.Neg()}}, nil
+			case ActionSell:
+				return []Delta{{w, t.Amount}}, nil
+			default:
+				return nil, fmt.Errorf("ledger: transfer %s has unknown investment action %q", t.ID, *t.InvestmentAction)
+			}
 		}
 		if !t.ToWalletID.Valid || !t.ToAmount.Valid {
 			return nil, fmt.Errorf("ledger: transfer %s needs to_wallet_id and to_amount", t.ID)

@@ -36,3 +36,15 @@ RETURNING *;
 -- name: SoftDeleteInvestment :execrows
 UPDATE investments SET deleted_at = now(), updated_at = now()
 WHERE id = $1 AND space_id = $2 AND deleted_at IS NULL;
+
+-- name: UpdateInvestmentPosition :one
+UPDATE investments SET quantity = $3, avg_buy_price = $4, fees = $5, details = $6, updated_at = now()
+WHERE id = $1 AND space_id = $2 AND deleted_at IS NULL
+RETURNING *;
+
+-- name: RealizedPLByInvestment :many
+-- Realized profit/loss of every SELL, summed per investment (in each investment's quote currency).
+SELECT t.investment_id, COALESCE(sum(t.realized_pl), 0)::numeric(28,8) AS realized_pl, count(*)::int AS sells
+FROM transactions t
+WHERE t.space_id = $1 AND t.investment_action = 'SELL' AND t.investment_id IS NOT NULL
+GROUP BY t.investment_id;

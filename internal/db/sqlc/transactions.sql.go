@@ -80,32 +80,43 @@ const createTransaction = `-- name: CreateTransaction :one
 INSERT INTO transactions (
     space_id, type, direction, title, note, amount, currency, wallet_id, category_id,
     occurred_at, created_by_id,
-    to_wallet_id, to_amount, to_currency, fx_rate
+    to_wallet_id, to_amount, to_currency, fx_rate,
+    investment_id, investment_action, quantity, unit_price, fee, realized_pl, position_before, position_after
 ) VALUES (
     $1, $2, $7, $8, $9, $3, $4,
     $10, $11,
     $5, $6,
-    $12, $13, $14, $15
+    $12, $13, $14, $15,
+    $16, $17, $18, $19,
+    $20, $21, $22, $23
 )
 RETURNING id, space_id, type, direction, title, note, amount, currency, wallet_id, category_id, occurred_at, created_by_id, created_at, updated_at, to_wallet_id, to_amount, to_currency, fx_rate, investment_id, investment_action, quantity, unit_price, fee, realized_pl, position_before, position_after, manual_asset_id
 `
 
 type CreateTransactionParams struct {
-	SpaceID     uuid.UUID           `json:"space_id"`
-	Type        string              `json:"type"`
-	Amount      decimal.Decimal     `json:"amount"`
-	Currency    string              `json:"currency"`
-	OccurredAt  time.Time           `json:"occurred_at"`
-	CreatedByID uuid.UUID           `json:"created_by_id"`
-	Direction   *string             `json:"direction"`
-	Title       *string             `json:"title"`
-	Note        *string             `json:"note"`
-	WalletID    uuid.NullUUID       `json:"wallet_id"`
-	CategoryID  uuid.NullUUID       `json:"category_id"`
-	ToWalletID  uuid.NullUUID       `json:"to_wallet_id"`
-	ToAmount    decimal.NullDecimal `json:"to_amount"`
-	ToCurrency  *string             `json:"to_currency"`
-	FxRate      decimal.NullDecimal `json:"fx_rate"`
+	SpaceID          uuid.UUID           `json:"space_id"`
+	Type             string              `json:"type"`
+	Amount           decimal.Decimal     `json:"amount"`
+	Currency         string              `json:"currency"`
+	OccurredAt       time.Time           `json:"occurred_at"`
+	CreatedByID      uuid.UUID           `json:"created_by_id"`
+	Direction        *string             `json:"direction"`
+	Title            *string             `json:"title"`
+	Note             *string             `json:"note"`
+	WalletID         uuid.NullUUID       `json:"wallet_id"`
+	CategoryID       uuid.NullUUID       `json:"category_id"`
+	ToWalletID       uuid.NullUUID       `json:"to_wallet_id"`
+	ToAmount         decimal.NullDecimal `json:"to_amount"`
+	ToCurrency       *string             `json:"to_currency"`
+	FxRate           decimal.NullDecimal `json:"fx_rate"`
+	InvestmentID     uuid.NullUUID       `json:"investment_id"`
+	InvestmentAction *string             `json:"investment_action"`
+	Quantity         decimal.NullDecimal `json:"quantity"`
+	UnitPrice        decimal.NullDecimal `json:"unit_price"`
+	Fee              decimal.NullDecimal `json:"fee"`
+	RealizedPl       decimal.NullDecimal `json:"realized_pl"`
+	PositionBefore   []byte              `json:"position_before"`
+	PositionAfter    []byte              `json:"position_after"`
 }
 
 func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionParams) (Transaction, error) {
@@ -125,6 +136,14 @@ func (q *Queries) CreateTransaction(ctx context.Context, arg CreateTransactionPa
 		arg.ToAmount,
 		arg.ToCurrency,
 		arg.FxRate,
+		arg.InvestmentID,
+		arg.InvestmentAction,
+		arg.Quantity,
+		arg.UnitPrice,
+		arg.Fee,
+		arg.RealizedPl,
+		arg.PositionBefore,
+		arg.PositionAfter,
 	)
 	var i Transaction
 	err := row.Scan(
@@ -258,11 +277,13 @@ const getTransactionDetail = `-- name: GetTransactionDetail :one
 SELECT t.id, t.space_id, t.type, t.direction, t.title, t.note, t.amount, t.currency, t.wallet_id, t.category_id, t.occurred_at, t.created_by_id, t.created_at, t.updated_at, t.to_wallet_id, t.to_amount, t.to_currency, t.fx_rate, t.investment_id, t.investment_action, t.quantity, t.unit_price, t.fee, t.realized_pl, t.position_before, t.position_after, t.manual_asset_id,
        w.name  AS wallet_name,  w.icon  AS wallet_icon,
        tw.name AS to_wallet_name, tw.icon AS to_wallet_icon,
-       c.name  AS category_name, c.icon AS category_icon, c.color AS category_color
+       c.name  AS category_name, c.icon AS category_icon, c.color AS category_color,
+       inv.name AS investment_name, inv.symbol AS investment_symbol, inv.icon AS investment_icon
 FROM transactions t
 LEFT JOIN wallets w     ON w.id = t.wallet_id
 LEFT JOIN wallets tw    ON tw.id = t.to_wallet_id
 LEFT JOIN categories c  ON c.id = t.category_id
+LEFT JOIN investments inv ON inv.id = t.investment_id
 WHERE t.id = $1 AND t.space_id = $2
 `
 
@@ -306,6 +327,9 @@ type GetTransactionDetailRow struct {
 	CategoryName     *string             `json:"category_name"`
 	CategoryIcon     *string             `json:"category_icon"`
 	CategoryColor    *string             `json:"category_color"`
+	InvestmentName   *string             `json:"investment_name"`
+	InvestmentSymbol *string             `json:"investment_symbol"`
+	InvestmentIcon   *string             `json:"investment_icon"`
 }
 
 func (q *Queries) GetTransactionDetail(ctx context.Context, arg GetTransactionDetailParams) (GetTransactionDetailRow, error) {
@@ -346,6 +370,9 @@ func (q *Queries) GetTransactionDetail(ctx context.Context, arg GetTransactionDe
 		&i.CategoryName,
 		&i.CategoryIcon,
 		&i.CategoryColor,
+		&i.InvestmentName,
+		&i.InvestmentSymbol,
+		&i.InvestmentIcon,
 	)
 	return i, err
 }
@@ -398,11 +425,13 @@ const listTransactions = `-- name: ListTransactions :many
 SELECT t.id, t.space_id, t.type, t.direction, t.title, t.note, t.amount, t.currency, t.wallet_id, t.category_id, t.occurred_at, t.created_by_id, t.created_at, t.updated_at, t.to_wallet_id, t.to_amount, t.to_currency, t.fx_rate, t.investment_id, t.investment_action, t.quantity, t.unit_price, t.fee, t.realized_pl, t.position_before, t.position_after, t.manual_asset_id,
        w.name  AS wallet_name,  w.icon  AS wallet_icon,
        tw.name AS to_wallet_name, tw.icon AS to_wallet_icon,
-       c.name  AS category_name, c.icon AS category_icon, c.color AS category_color
+       c.name  AS category_name, c.icon AS category_icon, c.color AS category_color,
+       inv.name AS investment_name, inv.symbol AS investment_symbol, inv.icon AS investment_icon
 FROM transactions t
 LEFT JOIN wallets w     ON w.id = t.wallet_id
 LEFT JOIN wallets tw    ON tw.id = t.to_wallet_id
 LEFT JOIN categories c  ON c.id = t.category_id
+LEFT JOIN investments inv ON inv.id = t.investment_id
 WHERE t.space_id = $1
   AND ($2::timestamptz IS NULL OR t.occurred_at >= $2)
   AND ($3::timestamptz IS NULL OR t.occurred_at < $3)
@@ -413,7 +442,8 @@ WHERE t.space_id = $1
        OR t.to_wallet_id = ANY($6::uuid[]))
   AND ($7::text IS NULL
        OR t.title ILIKE $7 OR t.note ILIKE $7
-       OR c.name ILIKE $7 OR w.name ILIKE $7 OR tw.name ILIKE $7)
+       OR c.name ILIKE $7 OR w.name ILIKE $7 OR tw.name ILIKE $7
+       OR inv.name ILIKE $7 OR inv.symbol ILIKE $7)
   AND ($8::timestamptz IS NULL
        OR (t.occurred_at, t.id) < ($8::timestamptz, $9::uuid))
 ORDER BY t.occurred_at DESC, t.id DESC
@@ -468,6 +498,9 @@ type ListTransactionsRow struct {
 	CategoryName     *string             `json:"category_name"`
 	CategoryIcon     *string             `json:"category_icon"`
 	CategoryColor    *string             `json:"category_color"`
+	InvestmentName   *string             `json:"investment_name"`
+	InvestmentSymbol *string             `json:"investment_symbol"`
+	InvestmentIcon   *string             `json:"investment_icon"`
 }
 
 func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsParams) ([]ListTransactionsRow, error) {
@@ -525,6 +558,9 @@ func (q *Queries) ListTransactions(ctx context.Context, arg ListTransactionsPara
 			&i.CategoryName,
 			&i.CategoryIcon,
 			&i.CategoryColor,
+			&i.InvestmentName,
+			&i.InvestmentSymbol,
+			&i.InvestmentIcon,
 		); err != nil {
 			return nil, err
 		}
@@ -568,6 +604,87 @@ func (q *Queries) UpdateIncomeExpense(ctx context.Context, arg UpdateIncomeExpen
 		arg.OccurredAt,
 		arg.CategoryID,
 		arg.Title,
+		arg.Note,
+	)
+	var i Transaction
+	err := row.Scan(
+		&i.ID,
+		&i.SpaceID,
+		&i.Type,
+		&i.Direction,
+		&i.Title,
+		&i.Note,
+		&i.Amount,
+		&i.Currency,
+		&i.WalletID,
+		&i.CategoryID,
+		&i.OccurredAt,
+		&i.CreatedByID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ToWalletID,
+		&i.ToAmount,
+		&i.ToCurrency,
+		&i.FxRate,
+		&i.InvestmentID,
+		&i.InvestmentAction,
+		&i.Quantity,
+		&i.UnitPrice,
+		&i.Fee,
+		&i.RealizedPl,
+		&i.PositionBefore,
+		&i.PositionAfter,
+		&i.ManualAssetID,
+	)
+	return i, err
+}
+
+const updateInvestmentTrade = `-- name: UpdateInvestmentTrade :one
+UPDATE transactions SET
+    wallet_id = $3, amount = $4, currency = $5, fx_rate = $6, to_amount = $7, to_currency = $8,
+    quantity = $9, unit_price = $10, fee = $11, realized_pl = $15,
+    position_before = $12, position_after = $13, occurred_at = $14, note = $16, updated_at = now()
+WHERE id = $1 AND space_id = $2 AND investment_id IS NOT NULL
+RETURNING id, space_id, type, direction, title, note, amount, currency, wallet_id, category_id, occurred_at, created_by_id, created_at, updated_at, to_wallet_id, to_amount, to_currency, fx_rate, investment_id, investment_action, quantity, unit_price, fee, realized_pl, position_before, position_after, manual_asset_id
+`
+
+type UpdateInvestmentTradeParams struct {
+	ID             uuid.UUID           `json:"id"`
+	SpaceID        uuid.UUID           `json:"space_id"`
+	WalletID       uuid.NullUUID       `json:"wallet_id"`
+	Amount         decimal.Decimal     `json:"amount"`
+	Currency       string              `json:"currency"`
+	FxRate         decimal.NullDecimal `json:"fx_rate"`
+	ToAmount       decimal.NullDecimal `json:"to_amount"`
+	ToCurrency     *string             `json:"to_currency"`
+	Quantity       decimal.NullDecimal `json:"quantity"`
+	UnitPrice      decimal.NullDecimal `json:"unit_price"`
+	Fee            decimal.NullDecimal `json:"fee"`
+	PositionBefore []byte              `json:"position_before"`
+	PositionAfter  []byte              `json:"position_after"`
+	OccurredAt     time.Time           `json:"occurred_at"`
+	RealizedPl     decimal.NullDecimal `json:"realized_pl"`
+	Note           *string             `json:"note"`
+}
+
+// Rewrites a BUY/SELL row after its position and wallet amounts were recomputed.
+func (q *Queries) UpdateInvestmentTrade(ctx context.Context, arg UpdateInvestmentTradeParams) (Transaction, error) {
+	row := q.db.QueryRow(ctx, updateInvestmentTrade,
+		arg.ID,
+		arg.SpaceID,
+		arg.WalletID,
+		arg.Amount,
+		arg.Currency,
+		arg.FxRate,
+		arg.ToAmount,
+		arg.ToCurrency,
+		arg.Quantity,
+		arg.UnitPrice,
+		arg.Fee,
+		arg.PositionBefore,
+		arg.PositionAfter,
+		arg.OccurredAt,
+		arg.RealizedPl,
 		arg.Note,
 	)
 	var i Transaction
