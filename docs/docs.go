@@ -2322,6 +2322,179 @@ const docTemplate = `{
                 }
             }
         },
+        "/spaces/{spaceId}/transfers": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "` + "`" + `from` + "`" + ` and ` + "`" + `to` + "`" + ` are ` + "`" + `{type:\"WALLET\", walletId}` + "`" + `. ` + "`" + `toAmount` + "`" + ` is required when the wallets use different currencies (the stored rate is toAmount / amount); for the same currency it must equal ` + "`" + `amount` + "`" + ` or be omitted. Negative balances are allowed. ` + "`" + `type:\"INVESTMENT\"` + "`" + ` answers 422 NOT_SUPPORTED_YET until investments can be transfer endpoints. Transfers never count as income or expense; they show in the ` + "`" + `transfer` + "`" + ` column of the daily summary and in the history of both wallets.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "transfers"
+                ],
+                "summary": "Transfer between wallets",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Transfer",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/transfers.createRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/transactions.TransactionDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "space or wallet not found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "422": {
+                        "description": "TRANSFER_SAME_WALLET / TRANSFER_AMOUNT_REQUIRED / NOT_SUPPORTED_YET",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/spaces/{spaceId}/transfers/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "transfers"
+                ],
+                "summary": "Delete a transfer (both balances are restored)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Transfer ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Any field may be sent; the old effect is reversed and the new one applied atomically. Changing the amount or either wallet of a cross-currency transfer requires ` + "`" + `toAmount` + "`" + `.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "transfers"
+                ],
+                "summary": "Edit a transfer",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Transfer ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Fields to change",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/transfers.updateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/transactions.TransactionDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "422": {
+                        "description": "TRANSFER_SAME_WALLET / TRANSFER_AMOUNT_REQUIRED / NOT_SUPPORTED_YET",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/spaces/{spaceId}/wallets": {
             "get": {
                 "security": [
@@ -3636,6 +3809,58 @@ const docTemplate = `{
                     ]
                 },
                 "walletId": {
+                    "type": "string"
+                }
+            }
+        },
+        "transfers.createRequest": {
+            "type": "object",
+            "required": [
+                "amount"
+            ],
+            "properties": {
+                "amount": {
+                    "type": "string",
+                    "example": "100.00"
+                },
+                "from": {
+                    "type": "object"
+                },
+                "note": {
+                    "type": "string",
+                    "maxLength": 1000
+                },
+                "occurredAt": {
+                    "type": "string"
+                },
+                "to": {
+                    "type": "object"
+                },
+                "toAmount": {
+                    "type": "string",
+                    "example": "1600000"
+                }
+            }
+        },
+        "transfers.updateRequest": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "type": "string"
+                },
+                "from": {
+                    "type": "object"
+                },
+                "note": {
+                    "type": "string"
+                },
+                "occurredAt": {
+                    "type": "string"
+                },
+                "to": {
+                    "type": "object"
+                },
+                "toAmount": {
                     "type": "string"
                 }
             }

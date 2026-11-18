@@ -24,6 +24,7 @@ import (
 	"github.com/JonathanRainee/hzzt/internal/server"
 	"github.com/JonathanRainee/hzzt/internal/spaces"
 	"github.com/JonathanRainee/hzzt/internal/transactions"
+	"github.com/JonathanRainee/hzzt/internal/transfers"
 	"github.com/JonathanRainee/hzzt/internal/users"
 	"github.com/JonathanRainee/hzzt/internal/wallets"
 )
@@ -105,6 +106,7 @@ func run() error {
 	transactionsSvc := transactions.NewService(pool, currencySvc, nil)
 	categoriesSvc.SetUsageChecker(transactionsSvc.CategoryInUse) // locks a category's type once used
 	transactionsHandler := transactions.NewHandler(transactionsSvc, authSvc, spacesSvc)
+	transfersHandler := transfers.NewHandler(transfers.NewService(pool, transactionsSvc, nil), authSvc, spacesSvc)
 	stopJobs, err := currencySvc.StartJobs(ctx, log)
 	if err != nil {
 		return err
@@ -113,7 +115,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           server.NewRouter(cfg, log, sqlc.New(pool), authHandler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount, walletsHandler.Mount, transactionsHandler.Mount),
+		Handler:           server.NewRouter(cfg, log, sqlc.New(pool), authHandler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount, walletsHandler.Mount, transactionsHandler.Mount, transfersHandler.Mount),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,
