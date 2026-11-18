@@ -94,3 +94,22 @@ func TestFXProvider(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "FX_PROVIDER must be one of")
 }
+
+func TestCMCRefreshMinutes(t *testing.T) {
+	c, err := LoadFrom(env(valid()))
+	require.NoError(t, err)
+	assert.Equal(t, 10, c.CMCRefreshMinutes)
+
+	m := valid()
+	m["CMC_REFRESH_MINUTES"] = "30"
+	c, err = LoadFrom(env(m))
+	require.NoError(t, err)
+	assert.Equal(t, 30, c.CMCRefreshMinutes)
+
+	for _, bad := range []string{"0", "-5", "abc", "99999"} {
+		m["CMC_REFRESH_MINUTES"] = bad
+		_, err = LoadFrom(env(m))
+		require.Error(t, err, bad)
+		assert.Contains(t, err.Error(), "CMC_REFRESH_MINUTES")
+	}
+}
