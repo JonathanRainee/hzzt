@@ -16,6 +16,7 @@ import (
 	"github.com/JonathanRainee/hzzt/internal/db/sqlc"
 	"github.com/JonathanRainee/hzzt/internal/investments"
 	"github.com/JonathanRainee/hzzt/internal/manualassets"
+	"github.com/JonathanRainee/hzzt/internal/marketdata/jobs"
 	"github.com/JonathanRainee/hzzt/internal/platform/apperror"
 )
 
@@ -61,6 +62,7 @@ type Service struct {
 	currency    *currency.Service
 	investments *investments.Service
 	assets      *manualassets.Service
+	runner      *jobs.Runner
 	now         func() time.Time
 }
 

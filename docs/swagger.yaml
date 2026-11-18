@@ -291,6 +291,166 @@ definitions:
     required:
     - rate
     type: object
+  dashboard.AnalyticsDTO:
+    properties:
+      buckets:
+        items:
+          $ref: '#/definitions/dashboard.BucketDTO'
+        type: array
+      currency:
+        example: USD
+        type: string
+      period:
+        $ref: '#/definitions/dashboard.PeriodDTO'
+      warnings:
+        items:
+          $ref: '#/definitions/currency.Warning'
+        type: array
+    type: object
+  dashboard.BreakdownDTO:
+    properties:
+      currency:
+        example: USD
+        type: string
+      items:
+        items:
+          $ref: '#/definitions/dashboard.CategoryShareDTO'
+        type: array
+      period:
+        $ref: '#/definitions/dashboard.PeriodDTO'
+      total:
+        type: string
+      type:
+        enum:
+        - EXPENSE
+        - INCOME
+        type: string
+      uncategorized:
+        $ref: '#/definitions/dashboard.CategoryShareDTO'
+      warnings:
+        items:
+          $ref: '#/definitions/currency.Warning'
+        type: array
+    type: object
+  dashboard.BucketDTO:
+    properties:
+      expense:
+        type: string
+      fromDate:
+        example: "2026-11-29"
+        type: string
+      income:
+        type: string
+      label:
+        example: 29–30 Nov
+        type: string
+      toDate:
+        example: "2026-11-30"
+        type: string
+    type: object
+  dashboard.CalendarDTO:
+    properties:
+      currency:
+        example: USD
+        type: string
+      days:
+        items:
+          $ref: '#/definitions/dashboard.DayDTO'
+        type: array
+      month:
+        example: 2026-11
+        type: string
+      warnings:
+        items:
+          $ref: '#/definitions/currency.Warning'
+        type: array
+    type: object
+  dashboard.CategoryShareDTO:
+    properties:
+      amount:
+        type: string
+      categoryId:
+        type: string
+      color:
+        type: string
+      count:
+        type: integer
+      icon:
+        type: string
+      name:
+        type: string
+      pct:
+        description: a percentage of the total
+        example: "42.5"
+        type: string
+    type: object
+  dashboard.ChangeDTO:
+    properties:
+      expensePct:
+        type: string
+      incomePct:
+        type: string
+      netPct:
+        type: string
+    type: object
+  dashboard.DayDTO:
+    properties:
+      count:
+        type: integer
+      date:
+        example: "2026-11-18"
+        type: string
+      expense:
+        type: string
+      income:
+        type: string
+      net:
+        type: string
+    type: object
+  dashboard.OverviewDTO:
+    properties:
+      change:
+        $ref: '#/definitions/dashboard.ChangeDTO'
+      currency:
+        example: USD
+        type: string
+      expense:
+        type: string
+      income:
+        type: string
+      net:
+        type: string
+      period:
+        $ref: '#/definitions/dashboard.PeriodDTO'
+      previous:
+        allOf:
+        - $ref: '#/definitions/dashboard.TotalsDTO'
+        description: null for ALL_TIME
+      transactionCount:
+        type: integer
+      warnings:
+        items:
+          $ref: '#/definitions/currency.Warning'
+        type: array
+    type: object
+  dashboard.PeriodDTO:
+    properties:
+      from:
+        type: string
+      to:
+        type: string
+    type: object
+  dashboard.TotalsDTO:
+    properties:
+      expense:
+        type: string
+      income:
+        type: string
+      net:
+        type: string
+      transactionCount:
+        type: integer
+    type: object
   goals.AllocationDTO:
     properties:
       amount:
@@ -1072,6 +1232,27 @@ definitions:
         example: BTC
         type: string
     type: object
+  networth.HistoryDTO:
+    properties:
+      changePct:
+        description: first → last point, a percentage; null when it cannot be computed
+        type: string
+      currency:
+        example: USD
+        type: string
+      points:
+        items:
+          $ref: '#/definitions/networth.PointDTO'
+        type: array
+      range:
+        enum:
+        - 1M
+        - 3M
+        - 6M
+        - 1Y
+        - ALL
+        type: string
+    type: object
   networth.InvestmentsDTO:
     properties:
       cost:
@@ -1082,6 +1263,17 @@ definitions:
         description: a percentage; null when the cost is 0
         type: string
       value:
+        type: string
+    type: object
+  networth.PointDTO:
+    properties:
+      date:
+        example: "2026-11-18"
+        type: string
+      live:
+        description: the point computed now for today
+        type: boolean
+      netWorth:
         type: string
     type: object
   networth.SummaryDTO:
@@ -2863,6 +3055,181 @@ paths:
       summary: Set the display order of one category type
       tags:
       - categories
+  /spaces/{spaceId}/dashboard/analytics:
+    get:
+      description: For a month-length period the bars are days 1–7, 8–14, 15–21, 22–28
+        and 29–end of the period (the last one is labelled e.g. "29–30 Nov"); THIS_YEAR
+        and other long ranges give one bar per calendar month; up to 14 days give
+        one bar per day. Days are the user's local days; amounts are in the space
+        base currency.
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Period preset (default THIS_PERIOD)
+        in: query
+        name: period
+        type: string
+      - description: Start date (YYYY-MM-DD)
+        in: query
+        name: from
+        type: string
+      - description: End date, inclusive (YYYY-MM-DD)
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dashboard.AnalyticsDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Income and expense bars for a period
+      tags:
+      - dashboard
+  /spaces/{spaceId}/dashboard/calendar:
+    get:
+      description: Every day of the month is listed (days without transactions are
+        zero), grouped by the user's local date and converted to the space base currency.
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Month (YYYY-MM)
+        in: query
+        name: month
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dashboard.CalendarDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Income, expense and transaction count per local day of a month
+      tags:
+      - dashboard
+  /spaces/{spaceId}/dashboard/category-breakdown:
+    get:
+      description: 'Per category: amount (space base currency), pct of the total and
+        transaction count, largest first; transactions without a category are reported
+        as `uncategorized`. Deleted categories still appear for their historical transactions.'
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Period preset (default THIS_PERIOD)
+        in: query
+        name: period
+        type: string
+      - description: Start date (YYYY-MM-DD)
+        in: query
+        name: from
+        type: string
+      - description: End date, inclusive (YYYY-MM-DD)
+        in: query
+        name: to
+        type: string
+      - description: EXPENSE (default) or INCOME
+        in: query
+        name: type
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dashboard.BreakdownDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Income or expense of a period by category
+      tags:
+      - dashboard
+  /spaces/{spaceId}/dashboard/overview:
+    get:
+      description: Totals are converted to the space base currency and cover INCOME
+        and EXPENSE transactions only (transfers, trades, settlements, adjustments
+        and opening balances are excluded). `period` is a preset (TODAY, THIS_WEEK,
+        THIS_PERIOD (default), LAST_7_DAYS ... THIS_YEAR, ALL_TIME) or use `from`/`to`
+        (YYYY-MM-DD, inclusive). The previous period is the one right before (yesterday,
+        last week, the previous budget period, the N days before, last year; for a
+        custom range the same length before it). Percentage changes are null when
+        the previous value is 0.
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Period preset
+        in: query
+        name: period
+        type: string
+      - description: Start date (YYYY-MM-DD)
+        in: query
+        name: from
+        type: string
+      - description: End date, inclusive (YYYY-MM-DD)
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dashboard.OverviewDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Income and expense of a period compared with the previous one
+      tags:
+      - dashboard
   /spaces/{spaceId}/fx/manual-rates:
     get:
       description: Used instead of live rates when the space has autoFxConversion
@@ -3975,6 +4342,43 @@ paths:
       summary: Remove a member (OWNER) or leave the space (self)
       tags:
       - spaces
+  /spaces/{spaceId}/net-worth/history:
+    get:
+      description: Daily snapshots (stored at 00:15 UTC, one per UTC date) in the
+        space's current base currency, plus a live point for today, at most about
+        120 points (evenly downsampled, first and last kept). A space created today
+        returns just the live point. `changePct` is the change from the first to the
+        last point.
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: 1M, 3M, 6M, 1Y or ALL (default 1M)
+        in: query
+        name: range
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/networth.HistoryDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Net-worth history for a range
+      tags:
+      - net-worth
   /spaces/{spaceId}/net-worth/summary:
     get:
       description: netWorth = cash + investments (my share, including investments

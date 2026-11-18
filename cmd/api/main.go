@@ -17,6 +17,7 @@ import (
 	"github.com/JonathanRainee/hzzt/internal/categories"
 	"github.com/JonathanRainee/hzzt/internal/config"
 	"github.com/JonathanRainee/hzzt/internal/currency"
+	"github.com/JonathanRainee/hzzt/internal/dashboard"
 	"github.com/JonathanRainee/hzzt/internal/db"
 	"github.com/JonathanRainee/hzzt/internal/db/sqlc"
 	"github.com/JonathanRainee/hzzt/internal/goals"
@@ -24,6 +25,7 @@ import (
 	"github.com/JonathanRainee/hzzt/internal/manualassets"
 	"github.com/JonathanRainee/hzzt/internal/marketdata"
 	"github.com/JonathanRainee/hzzt/internal/marketdata/coinmarketcap"
+	"github.com/JonathanRainee/hzzt/internal/marketdata/jobs"
 	"github.com/JonathanRainee/hzzt/internal/marketdata/massive"
 	"github.com/JonathanRainee/hzzt/internal/networth"
 	"github.com/JonathanRainee/hzzt/internal/platform/email"
@@ -135,7 +137,15 @@ func run() error {
 	goalsHandler := goals.NewHandler(goals.NewService(pool, currencySvc, nil), authSvc, spacesSvc)
 	manualAssetsSvc := manualassets.NewService(pool, currencySvc, transactionsSvc, nil)
 	manualAssetsHandler := manualassets.NewHandler(manualAssetsSvc, authSvc, spacesSvc)
-	networthHandler := networth.NewHandler(networth.NewService(pool, currencySvc, investmentsSvc, manualAssetsSvc, nil), authSvc, spacesSvc)
+	networthSvc := networth.NewService(pool, currencySvc, investmentsSvc, manualAssetsSvc, nil)
+	networthSvc.SetRunner(jobs.New(pool, log, nil))
+	networthHandler := networth.NewHandler(networthSvc, authSvc, spacesSvc)
+	dashboardHandler := dashboard.NewHandler(dashboard.NewService(pool, currencySvc, nil), authSvc, spacesSvc)
+	stopSnapshots, err := networthSvc.StartJobs(ctx, log)
+	if err != nil {
+		return err
+	}
+	defer stopSnapshots()
 	transfersHandler := transfers.NewHandler(transfers.NewService(pool, transactionsSvc, investmentsSvc, manualAssetsSvc, nil), authSvc, spacesSvc)
 	investmentsHandler := investments.NewHandler(investmentsSvc, authSvc, spacesSvc, investments.DefaultLimits())
 	marketHandler := marketdata.NewHandler(marketSvc, authSvc, marketdata.DefaultLimits())
@@ -152,7 +162,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           server.NewRouter(cfg, log, sqlc.New(pool), authHandler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount, walletsHandler.Mount, transactionsHandler.Mount, transfersHandler.Mount, investmentsHandler.Mount, marketHandler.Mount, manualAssetsHandler.Mount, networthHandler.Mount, goalsHandler.Mount),
+		Handler:           server.NewRouter(cfg, log, sqlc.New(pool), authHandler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount, walletsHandler.Mount, transactionsHandler.Mount, transfersHandler.Mount, investmentsHandler.Mount, marketHandler.Mount, manualAssetsHandler.Mount, networthHandler.Mount, goalsHandler.Mount, dashboardHandler.Mount),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,

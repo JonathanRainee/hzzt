@@ -32,6 +32,7 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Group(func(r chi.Router) {
 		r.Use(h.auth.Middleware, h.spaces.Middleware)
 		r.Get("/spaces/{spaceId}/net-worth/summary", h.summary)
+		r.Get("/spaces/{spaceId}/net-worth/history", h.history)
 	})
 }
 
@@ -91,4 +92,50 @@ func (h *Handler) summary(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(ToDTO(s))
+}
+
+// PointDTO is one day of the net-worth history.
+type PointDTO struct {
+	Date     string          `json:"date" example:"2026-11-18"`
+	NetWorth decimal.Decimal `json:"netWorth" swaggertype:"string"`
+	Live     bool            `json:"live,omitempty"` // the point computed now for today
+}
+
+// HistoryDTO is the net-worth graph of a space.
+type HistoryDTO struct {
+	Currency  string           `json:"currency" example:"USD"`
+	Range     string           `json:"range" enums:"1M,3M,6M,1Y,ALL"`
+	Points    []PointDTO       `json:"points"`
+	ChangePct *decimal.Decimal `json:"changePct" swaggertype:"string"` // first → last point, a percentage; null when it cannot be computed
+}
+
+// history godoc
+//
+//	@Summary		Net-worth history for a range
+//	@Description	Daily snapshots (stored at 00:15 UTC, one per UTC date) in the space's current base currency, plus a live point for today, at most about 120 points (evenly downsampled, first and last kept). A space created today returns just the live point. `changePct` is the change from the first to the last point.
+//	@Tags			net-worth
+//	@Security		BearerAuth
+//	@Produce		json
+//	@Param			spaceId	path		string	true	"Space ID"
+//	@Param			range	query		string	false	"1M, 3M, 6M, 1Y or ALL (default 1M)"
+//	@Success		200		{object}	HistoryDTO
+//	@Failure		400		{object}	httpx.ErrorEnvelope
+//	@Failure		404		{object}	httpx.ErrorEnvelope
+//	@Router			/spaces/{spaceId}/net-worth/history [get]
+func (h *Handler) history(w http.ResponseWriter, r *http.Request) {
+	rng := r.URL.Query().Get("range")
+	if rng == "" {
+		rng = "1M"
+	}
+	res, err := h.svc.History(r.Context(), spaces.SpaceIDFromContext(r.Context()), rng)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	out := HistoryDTO{Currency: res.Currency, Range: res.Range, ChangePct: res.ChangePct, Points: make([]PointDTO, 0, len(res.Points))}
+	for _, p := range res.Points {
+		out.Points = append(out.Points, PointDTO(p))
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(out)
 }
