@@ -99,6 +99,94 @@ definitions:
     - newPassword
     - token
     type: object
+  categories.CategoryDTO:
+    properties:
+      budgetAmount:
+        example: "500000"
+        type: string
+      budgetCurrency:
+        description: the space's base currency when a budget is set
+        example: IDR
+        type: string
+      color:
+        type: string
+      createdAt:
+        type: string
+      icon:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      sortOrder:
+        type: integer
+      type:
+        enum:
+        - EXPENSE
+        - INCOME
+        type: string
+    type: object
+  categories.createRequest:
+    properties:
+      budgetAmount:
+        type: string
+      color:
+        maxLength: 16
+        type: string
+      icon:
+        maxLength: 64
+        type: string
+      name:
+        maxLength: 120
+        minLength: 1
+        type: string
+      type:
+        enum:
+        - EXPENSE
+        - INCOME
+        type: string
+    required:
+    - color
+    - icon
+    - name
+    - type
+    type: object
+  categories.reorderRequest:
+    properties:
+      ids:
+        items:
+          type: string
+        maxItems: 500
+        type: array
+      type:
+        enum:
+        - EXPENSE
+        - INCOME
+        type: string
+    required:
+    - ids
+    - type
+    type: object
+  categories.updateRequest:
+    properties:
+      budgetAmount:
+        type: string
+      color:
+        maxLength: 16
+        type: string
+      icon:
+        maxLength: 64
+        type: string
+      name:
+        maxLength: 120
+        minLength: 1
+        type: string
+      type:
+        enum:
+        - EXPENSE
+        - INCOME
+        type: string
+    type: object
   currency.Currency:
     properties:
       code:
@@ -555,6 +643,32 @@ paths:
       summary: Reset password with an emailed token (revokes all sessions)
       tags:
       - auth
+  /categories/suggestions:
+    get:
+      parameters:
+      - description: EXPENSE or INCOME
+        in: query
+        name: type
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              type: string
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Suggested category names
+      tags:
+      - categories
   /currencies:
     get:
       produces:
@@ -1062,6 +1176,198 @@ paths:
       summary: Mark the space as my active space
       tags:
       - spaces
+  /spaces/{spaceId}/categories:
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: EXPENSE or INCOME
+        in: query
+        name: type
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/categories.CategoryDTO'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: List categories ordered by sortOrder
+      tags:
+      - categories
+    post:
+      consumes:
+      - application/json
+      description: Names are unique per type (case-insensitive). budgetAmount is a
+        monthly budget in the space's base currency, expense categories only.
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Category
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/categories.createRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/categories.CategoryDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "409":
+          description: CATEGORY_NAME_TAKEN
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "422":
+          description: BUDGET_NOT_ALLOWED
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Create a category
+      tags:
+      - categories
+  /spaces/{spaceId}/categories/{id}:
+    delete:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Category ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Delete a category (soft delete; transactions keep the link)
+      tags:
+      - categories
+    patch:
+      consumes:
+      - application/json
+      description: 'The type cannot change once transactions use the category (CATEGORY_TYPE_LOCKED).
+        `budgetAmount: null` clears the budget.'
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Category ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to change
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/categories.updateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/categories.CategoryDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "409":
+          description: CATEGORY_NAME_TAKEN
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "422":
+          description: BUDGET_NOT_ALLOWED / CATEGORY_TYPE_LOCKED
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Update a category
+      tags:
+      - categories
+  /spaces/{spaceId}/categories/order:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Type and every category id of that type in the new order
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/categories.reorderRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/categories.CategoryDTO'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Set the display order of one category type
+      tags:
+      - categories
   /spaces/{spaceId}/fx/manual-rates:
     get:
       description: Used instead of live rates when the space has autoFxConversion
