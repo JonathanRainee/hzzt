@@ -120,11 +120,33 @@ definitions:
         type: string
       sortOrder:
         type: integer
+      stats:
+        allOf:
+        - $ref: '#/definitions/categories.StatsDTO'
+        description: only with includeStats=true
       type:
         enum:
         - EXPENSE
         - INCOME
         type: string
+    type: object
+  categories.StatsDTO:
+    properties:
+      budgetRemaining:
+        type: string
+      budgetUsedPct:
+        type: string
+      currency:
+        example: IDR
+        type: string
+      received:
+        type: string
+      spent:
+        type: string
+      warnings:
+        items:
+          $ref: '#/definitions/currency.Warning'
+        type: array
     type: object
   categories.createRequest:
     properties:
@@ -377,6 +399,160 @@ definitions:
         enum:
         - FULL_NET_WORTH
         - CASH_ONLY
+        type: string
+    type: object
+  transactions.DailySummaryResponse:
+    properties:
+      currency:
+        example: IDR
+        type: string
+      items:
+        items:
+          $ref: '#/definitions/transactions.DaySummaryDTO'
+        type: array
+      warnings:
+        items:
+          $ref: '#/definitions/currency.Warning'
+        type: array
+    type: object
+  transactions.DaySummaryDTO:
+    properties:
+      count:
+        type: integer
+      date:
+        example: "2026-11-18"
+        type: string
+      expense:
+        type: string
+      income:
+        type: string
+      transfer:
+        type: string
+    type: object
+  transactions.ListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/transactions.TransactionDTO'
+        type: array
+      nextCursor:
+        type: string
+    type: object
+  transactions.Ref:
+    properties:
+      color:
+        type: string
+      icon:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+    type: object
+  transactions.TransactionDTO:
+    properties:
+      amount:
+        example: "50000"
+        type: string
+      category:
+        $ref: '#/definitions/transactions.Ref'
+      createdAt:
+        type: string
+      createdById:
+        type: string
+      currency:
+        example: IDR
+        type: string
+      direction:
+        enum:
+        - IN
+        - OUT
+        type: string
+      fxRate:
+        type: string
+      id:
+        type: string
+      note:
+        type: string
+      occurredAt:
+        type: string
+      title:
+        type: string
+      toAmount:
+        type: string
+      toCurrency:
+        type: string
+      toWallet:
+        $ref: '#/definitions/transactions.Ref'
+      type:
+        enum:
+        - INCOME
+        - EXPENSE
+        - TRANSFER
+        - ADJUSTMENT
+        - OPENING_BALANCE
+        type: string
+      updatedAt:
+        type: string
+      wallet:
+        $ref: '#/definitions/transactions.Ref'
+    type: object
+  transactions.createRequest:
+    properties:
+      amount:
+        example: "50000"
+        type: string
+      categoryId:
+        type: string
+      note:
+        maxLength: 1000
+        type: string
+      occurredAt:
+        type: string
+      title:
+        maxLength: 200
+        type: string
+      type:
+        enum:
+        - INCOME
+        - EXPENSE
+        type: string
+      walletId:
+        type: string
+    required:
+    - amount
+    - type
+    - walletId
+    type: object
+  transactions.topUpRequest:
+    properties:
+      amount:
+        example: "100000"
+        type: string
+      note:
+        maxLength: 1000
+        type: string
+    required:
+    - amount
+    type: object
+  transactions.updateRequest:
+    properties:
+      amount:
+        type: string
+      categoryId:
+        type: string
+      note:
+        type: string
+      occurredAt:
+        type: string
+      title:
+        type: string
+      type:
+        enum:
+        - INCOME
+        - EXPENSE
+        type: string
+      walletId:
         type: string
     type: object
   users.PreferencesDTO:
@@ -1377,6 +1553,10 @@ paths:
       - spaces
   /spaces/{spaceId}/categories:
     get:
+      description: 'With includeStats=true each category carries `stats` for the period
+        (default THIS_PERIOD): expense → spent, budgetRemaining, budgetUsedPct; income
+        → received, all in the space base currency. `period` is a preset (TODAY, THIS_WEEK,
+        THIS_PERIOD, LAST_7_DAYS, ..., ALL_TIME) or use `from`/`to` (YYYY-MM-DD, inclusive).'
       parameters:
       - description: Space ID
         in: path
@@ -1386,6 +1566,22 @@ paths:
       - description: EXPENSE or INCOME
         in: query
         name: type
+        type: string
+      - description: Include usage stats
+        in: query
+        name: includeStats
+        type: boolean
+      - description: Period preset for stats
+        in: query
+        name: period
+        type: string
+      - description: Start date for stats (YYYY-MM-DD)
+        in: query
+        name: from
+        type: string
+      - description: End date for stats, inclusive (YYYY-MM-DD)
+        in: query
+        name: to
         type: string
       produces:
       - application/json
@@ -1816,6 +2012,293 @@ paths:
       summary: Remove a member (OWNER) or leave the space (self)
       tags:
       - spaces
+  /spaces/{spaceId}/transactions:
+    get:
+      description: Newest first (occurredAt desc, id desc) with cursor pagination.
+        `period` is TODAY, THIS_WEEK, THIS_PERIOD, LAST_7_DAYS, LAST_30_DAYS, LAST_60_DAYS,
+        LAST_90_DAYS, THIS_YEAR or ALL_TIME; or use `from`/`to` (YYYY-MM-DD, inclusive).
+        `types`, `categoryIds` and `walletIds` accept repeated, `[]`-suffixed or comma-separated
+        values; walletIds matches the source or destination wallet. `q` searches title,
+        note, category and wallet names. Filters combine with AND across fields and
+        OR within a list.
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Period preset
+        in: query
+        name: period
+        type: string
+      - description: Start date (YYYY-MM-DD)
+        in: query
+        name: from
+        type: string
+      - description: End date, inclusive (YYYY-MM-DD)
+        in: query
+        name: to
+        type: string
+      - collectionFormat: csv
+        description: INCOME, EXPENSE, TRANSFER, ADJUSTMENT, OPENING_BALANCE
+        in: query
+        items:
+          type: string
+        name: types
+        type: array
+      - collectionFormat: csv
+        description: Category IDs
+        in: query
+        items:
+          type: string
+        name: categoryIds
+        type: array
+      - collectionFormat: csv
+        description: Wallet IDs
+        in: query
+        items:
+          type: string
+        name: walletIds
+        type: array
+      - description: Search text
+        in: query
+        name: q
+        type: string
+      - description: Page size (default 30, max 100)
+        in: query
+        name: limit
+        type: integer
+      - description: nextCursor of the previous page
+        in: query
+        name: cursor
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/transactions.ListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Search and filter the transaction history
+      tags:
+      - transactions
+    post:
+      consumes:
+      - application/json
+      description: The currency is the wallet's currency; the category type must match
+        the transaction type.
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Transaction
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/transactions.createRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/transactions.TransactionDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: space, wallet or category not found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "422":
+          description: CATEGORY_TYPE_MISMATCH
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Record an income or expense
+      tags:
+      - transactions
+  /spaces/{spaceId}/transactions/{id}:
+    delete:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Transaction ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "422":
+          description: USE_SPECIFIC_ENDPOINT
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Delete a transaction (its balance effect is reversed)
+      tags:
+      - transactions
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Transaction ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/transactions.TransactionDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Get a transaction
+      tags:
+      - transactions
+    patch:
+      consumes:
+      - application/json
+      description: 'INCOME/EXPENSE: any field (the old balance effect is reversed
+        and the new one applied atomically). ADJUSTMENT/OPENING_BALANCE: only `note`.
+        Transfers and investment/asset transactions use their own endpoints (USE_SPECIFIC_ENDPOINT).
+        `categoryId`, `title` and `note` accept null to clear.'
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Transaction ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to change
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/transactions.updateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/transactions.TransactionDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "422":
+          description: CATEGORY_TYPE_MISMATCH / USE_SPECIFIC_ENDPOINT
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Edit a transaction
+      tags:
+      - transactions
+  /spaces/{spaceId}/transactions/daily-summary:
+    get:
+      description: Same filters as the list. Dates are the user's local dates; income,
+        expense and transfer are converted to the space base currency. Amounts without
+        a usable FX rate are left out and reported in `warnings`. Transfers appear
+        only in `transfer`, never in income or expense.
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Period preset
+        in: query
+        name: period
+        type: string
+      - description: Start date (YYYY-MM-DD)
+        in: query
+        name: from
+        type: string
+      - description: End date, inclusive (YYYY-MM-DD)
+        in: query
+        name: to
+        type: string
+      - collectionFormat: csv
+        description: Transaction types
+        in: query
+        items:
+          type: string
+        name: types
+        type: array
+      - collectionFormat: csv
+        description: Category IDs
+        in: query
+        items:
+          type: string
+        name: categoryIds
+        type: array
+      - collectionFormat: csv
+        description: Wallet IDs
+        in: query
+        items:
+          type: string
+        name: walletIds
+        type: array
+      - description: Search text
+        in: query
+        name: q
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/transactions.DailySummaryResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Daily totals for the filtered transactions
+      tags:
+      - transactions
   /spaces/{spaceId}/wallets:
     get:
       description: Favorites first, then sortOrder. `total` is converted to the space
@@ -2031,6 +2514,47 @@ paths:
       summary: Set the wallet balance
       tags:
       - wallets
+  /spaces/{spaceId}/wallets/{id}/top-up:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Wallet ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Amount
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/transactions.topUpRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/transactions.TransactionDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Top up a wallet (an INCOME titled "Balance top up", no category)
+      tags:
+      - transactions
   /spaces/{spaceId}/wallets/order:
     put:
       consumes:

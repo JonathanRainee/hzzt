@@ -7,12 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/shopspring/decimal"
 
+	"github.com/JonathanRainee/hzzt/internal/currency"
 	"github.com/JonathanRainee/hzzt/internal/db"
 	"github.com/JonathanRainee/hzzt/internal/db/sqlc"
 	"github.com/JonathanRainee/hzzt/internal/platform/apperror"
@@ -51,18 +53,23 @@ type UsageChecker func(ctx context.Context, spaceID, categoryID uuid.UUID) (bool
 
 // Service holds category logic.
 type Service struct {
-	db    DB
-	q     *sqlc.Queries
-	usage UsageChecker
+	db       DB
+	q        *sqlc.Queries
+	usage    UsageChecker
+	currency *currency.Service
+	now      func() time.Time
 }
 
-// NewService builds the service.
-func NewService(database DB) *Service {
+// NewService builds the service; cur is used to convert usage stats to the base currency.
+func NewService(database DB, cur *currency.Service) *Service {
 	return &Service{
-		db: database, q: sqlc.New(database),
+		db: database, q: sqlc.New(database), currency: cur, now: time.Now,
 		usage: func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return false, nil },
 	}
 }
+
+// SetClock overrides the clock used to resolve periods (tests).
+func (s *Service) SetClock(now func() time.Time) { s.now = now }
 
 // SetUsageChecker installs the "is this category used by transactions" check.
 func (s *Service) SetUsageChecker(c UsageChecker) { s.usage = c }
