@@ -19,6 +19,7 @@ import (
 	"github.com/JonathanRainee/hzzt/internal/currency"
 	"github.com/JonathanRainee/hzzt/internal/db"
 	"github.com/JonathanRainee/hzzt/internal/db/sqlc"
+	"github.com/JonathanRainee/hzzt/internal/goals"
 	"github.com/JonathanRainee/hzzt/internal/investments"
 	"github.com/JonathanRainee/hzzt/internal/manualassets"
 	"github.com/JonathanRainee/hzzt/internal/marketdata"
@@ -131,6 +132,7 @@ func run() error {
 	})
 	investmentsSvc := investments.NewService(pool, currencySvc, nil)
 	investmentsSvc.SetMarket(marketSvc)
+	goalsHandler := goals.NewHandler(goals.NewService(pool, currencySvc, nil), authSvc, spacesSvc)
 	manualAssetsSvc := manualassets.NewService(pool, currencySvc, transactionsSvc, nil)
 	manualAssetsHandler := manualassets.NewHandler(manualAssetsSvc, authSvc, spacesSvc)
 	networthHandler := networth.NewHandler(networth.NewService(pool, currencySvc, investmentsSvc, manualAssetsSvc, nil), authSvc, spacesSvc)
@@ -150,7 +152,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           server.NewRouter(cfg, log, sqlc.New(pool), authHandler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount, walletsHandler.Mount, transactionsHandler.Mount, transfersHandler.Mount, investmentsHandler.Mount, marketHandler.Mount, manualAssetsHandler.Mount, networthHandler.Mount),
+		Handler:           server.NewRouter(cfg, log, sqlc.New(pool), authHandler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount, walletsHandler.Mount, transactionsHandler.Mount, transfersHandler.Mount, investmentsHandler.Mount, marketHandler.Mount, manualAssetsHandler.Mount, networthHandler.Mount, goalsHandler.Mount),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,

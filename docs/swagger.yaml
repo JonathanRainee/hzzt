@@ -291,6 +291,148 @@ definitions:
     required:
     - rate
     type: object
+  goals.AllocationDTO:
+    properties:
+      amount:
+        description: in the wallet's currency
+        example: "100"
+        type: string
+      converted:
+        description: in the goal's currency; null without an FX rate
+        type: string
+      walletCurrency:
+        example: IDR
+        type: string
+      walletIcon:
+        type: string
+      walletId:
+        type: string
+      walletName:
+        type: string
+    type: object
+  goals.GoalDTO:
+    properties:
+      achievedAt:
+        type: string
+      allocations:
+        items:
+          $ref: '#/definitions/goals.AllocationDTO'
+        type: array
+      color:
+        example: '#22C55E'
+        type: string
+      createdAt:
+        type: string
+      currency:
+        example: USD
+        type: string
+      icon:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      progress:
+        description: Progress is the sum of the reservations converted to the goal's
+          currency.
+        type: string
+      progressPct:
+        description: ProgressPct is a percentage (50.00 = half way); over 100 means
+          exceeded.
+        type: string
+      remaining:
+        type: string
+      requiredMonthly:
+        description: RequiredMonthly is remaining / months until the target date;
+          null without a date, after it, or once achieved.
+        type: string
+      targetAmount:
+        example: "1000"
+        type: string
+      targetDate:
+        example: "2026-12-31"
+        type: string
+      warnings:
+        items:
+          $ref: '#/definitions/currency.Warning'
+        type: array
+    type: object
+  goals.ListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/goals.GoalDTO'
+        type: array
+    type: object
+  goals.allocationRequest:
+    properties:
+      amount:
+        example: "100"
+        type: string
+    required:
+    - amount
+    type: object
+  goals.createRequest:
+    properties:
+      color:
+        maxLength: 16
+        type: string
+      currency:
+        maxLength: 8
+        type: string
+      icon:
+        maxLength: 64
+        type: string
+      initialReserve:
+        $ref: '#/definitions/goals.reserveRequest'
+      name:
+        maxLength: 120
+        minLength: 1
+        type: string
+      targetAmount:
+        example: "1000"
+        type: string
+      targetDate:
+        example: "2026-12-31"
+        maxLength: 10
+        type: string
+    required:
+    - color
+    - icon
+    - name
+    - targetAmount
+    type: object
+  goals.reserveRequest:
+    properties:
+      amount:
+        example: "100"
+        type: string
+      walletId:
+        type: string
+    required:
+    - amount
+    - walletId
+    type: object
+  goals.updateRequest:
+    properties:
+      color:
+        maxLength: 16
+        type: string
+      currency:
+        maxLength: 8
+        type: string
+      icon:
+        maxLength: 64
+        type: string
+      name:
+        maxLength: 120
+        minLength: 1
+        type: string
+      targetAmount:
+        type: string
+      targetDate:
+        type: string
+    type: object
   httpx.ErrorBody:
     properties:
       code:
@@ -1445,6 +1587,9 @@ definitions:
     type: object
   wallets.WalletDTO:
     properties:
+      available:
+        example: "34.26"
+        type: string
       balance:
         example: "134.26"
         type: string
@@ -1462,6 +1607,14 @@ definitions:
       isFavorite:
         type: boolean
       name:
+        type: string
+      overReserved:
+        type: boolean
+      reserved:
+        description: |-
+          Reserved is the part of the balance earmarked for goals; Available = balance − reserved
+          and may be negative when expenses pushed the wallet below its reserves (OverReserved).
+        example: "100"
         type: string
       sortOrder:
         type: integer
@@ -2821,6 +2974,223 @@ paths:
       summary: 'Set a manual FX rate (OWNER): 1 base = rate quote'
       tags:
       - currency
+  /spaces/{spaceId}/goals:
+    get:
+      description: Progress is the sum of the wallet reservations converted to the
+        goal's currency, computed on read. `achievedAt` is set when progress first
+        reaches the target and cleared if it drops below again.
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/goals.ListResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: List savings goals with progress
+      tags:
+      - goals
+    post:
+      consumes:
+      - application/json
+      description: '`initialReserve {walletId, amount}` optionally reserves part of
+        a wallet right away (same rules as the allocations endpoint). Nothing is moved:
+        a reservation only earmarks part of a balance.'
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Goal
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/goals.createRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/goals.GoalDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "422":
+          description: INSUFFICIENT_AVAILABLE_BALANCE
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Create a goal
+      tags:
+      - goals
+  /spaces/{spaceId}/goals/{id}:
+    delete:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Goal ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Delete a goal and release all its reservations
+      tags:
+      - goals
+    get:
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Goal ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/goals.GoalDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Get a goal with progress and its reservations
+      tags:
+      - goals
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Goal ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to change
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/goals.updateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/goals.GoalDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: 'Update a goal (`targetDate: null` clears the date)'
+      tags:
+      - goals
+  /spaces/{spaceId}/goals/{id}/allocations/{walletId}:
+    put:
+      consumes:
+      - application/json
+      description: '`amount` is in the wallet''s currency and replaces this goal''s
+        reservation on that wallet. It must not exceed the wallet''s available balance
+        plus this goal''s current reservation (422 INSUFFICIENT_AVAILABLE_BALANCE).
+        No money moves; expenses may later push the wallet below its reserves (`overReserved`
+        on the wallet).'
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Goal ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Wallet ID
+        in: path
+        name: walletId
+        required: true
+        type: string
+      - description: Amount
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/goals.allocationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/goals.GoalDTO'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "422":
+          description: INSUFFICIENT_AVAILABLE_BALANCE
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Reserve part of a wallet for a goal (0 removes the reservation)
+      tags:
+      - goals
   /spaces/{spaceId}/investments:
     get:
       description: 'Values are the viewer''s: for a shared investment `valuation`
