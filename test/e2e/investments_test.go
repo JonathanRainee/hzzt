@@ -286,7 +286,7 @@ func TestCreateEachInvestmentType(t *testing.T) {
 			assert.Equal(t, "AUTO_PRICE_NOT_SUPPORTED", errCode(t, res))
 		}
 		assert.Equal(t, http.StatusCreated, e.post(clone(aapl, "priceMode", "AUTO")).Status)
-		assert.Equal(t, http.StatusCreated, e.post(map[string]any{"assetType": "GLOBAL_ETF", "name": "V", "symbol": "V", "quantity": "1", "priceMode": "AUTO", "details": map[string]any{"exchange": "NYSE"}}).Status)
+		assert.Equal(t, http.StatusCreated, e.post(map[string]any{"assetType": "GLOBAL_ETF", "name": "VOO", "symbol": "VOO", "quantity": "1", "priceMode": "AUTO", "details": map[string]any{"exchange": "NYSE"}}).Status)
 	})
 }
 
