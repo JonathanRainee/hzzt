@@ -14,6 +14,7 @@ import (
 	_ "time/tzdata" // IANA timezones even in minimal containers
 
 	"github.com/JonathanRainee/hzzt/internal/auth"
+	"github.com/JonathanRainee/hzzt/internal/categories"
 	"github.com/JonathanRainee/hzzt/internal/config"
 	"github.com/JonathanRainee/hzzt/internal/currency"
 	"github.com/JonathanRainee/hzzt/internal/db"
@@ -94,6 +95,9 @@ func run() error {
 	}
 	currencySvc := currency.NewService(pool, currency.Options{Provider: fxProvider, Log: log})
 	currencyHandler := currency.NewHandler(currencySvc, authSvc, spacesSvc)
+	categoriesSvc := categories.NewService(pool)
+	categoriesSvc.Subscribe(bus) // space.created → default categories
+	categoriesHandler := categories.NewHandler(categoriesSvc, authSvc, spacesSvc)
 	stopJobs, err := currencySvc.StartJobs(ctx, log)
 	if err != nil {
 		return err
@@ -102,7 +106,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           server.NewRouter(cfg, log, sqlc.New(pool), authHandler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount),
+		Handler:           server.NewRouter(cfg, log, sqlc.New(pool), authHandler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,

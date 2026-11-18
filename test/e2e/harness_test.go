@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/JonathanRainee/hzzt/internal/auth"
+	"github.com/JonathanRainee/hzzt/internal/categories"
 	"github.com/JonathanRainee/hzzt/internal/config"
 	"github.com/JonathanRainee/hzzt/internal/currency"
 	"github.com/JonathanRainee/hzzt/internal/db"
@@ -67,14 +68,15 @@ func run(m *testing.M) int {
 // a single transaction that is rolled back when the test ends.
 type TestServer struct {
 	*httptest.Server
-	Tx       pgx.Tx // for seeding and asserting data directly
-	Email    *email.Memory
-	Events   *events.Bus
-	Auth     *auth.Service
-	Clock    *testClock
-	FX       *FakeFX
-	Currency *currency.Service
-	t        *testing.T
+	Tx         pgx.Tx // for seeding and asserting data directly
+	Email      *email.Memory
+	Events     *events.Bus
+	Auth       *auth.Service
+	Clock      *testClock
+	FX         *FakeFX
+	Currency   *currency.Service
+	Categories *categories.Service
+	t          *testing.T
 }
 
 const testJWTSecret = "e2e-test-secret-e2e-test-secret-0123"
@@ -148,10 +150,13 @@ func newTestServer(t *testing.T, limits auth.Limits, userLimits users.Limits) *T
 	fx := &FakeFX{Set: defaultRates(clock)}
 	currencySvc := currency.NewService(tx, currency.Options{Provider: fx, Log: log, Now: clock.Now})
 	currencyHandler := currency.NewHandler(currencySvc, svc, spacesSvc)
-	srv := httptest.NewServer(server.NewRouter(cfg, log, sqlc.New(tx), handler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount))
+	categoriesSvc := categories.NewService(tx)
+	categoriesSvc.Subscribe(bus)
+	categoriesHandler := categories.NewHandler(categoriesSvc, svc, spacesSvc)
+	srv := httptest.NewServer(server.NewRouter(cfg, log, sqlc.New(tx), handler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount))
 	t.Cleanup(srv.Close)
 
-	return &TestServer{Server: srv, Tx: tx, Email: mail, Events: bus, Auth: svc, Clock: clock, FX: fx, Currency: currencySvc, t: t}
+	return &TestServer{Server: srv, Tx: tx, Email: mail, Events: bus, Auth: svc, Clock: clock, FX: fx, Currency: currencySvc, Categories: categoriesSvc, t: t}
 }
 
 // Response is a fully read HTTP response.
