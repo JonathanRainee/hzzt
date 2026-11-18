@@ -110,7 +110,6 @@ func run() error {
 	transactionsSvc := transactions.NewService(pool, currencySvc, nil)
 	categoriesSvc.SetUsageChecker(transactionsSvc.CategoryInUse) // locks a category's type once used
 	transactionsHandler := transactions.NewHandler(transactionsSvc, authSvc, spacesSvc)
-	transfersHandler := transfers.NewHandler(transfers.NewService(pool, transactionsSvc, nil), authSvc, spacesSvc)
 	var crypto marketdata.Crypto // stays a nil interface when no key is configured
 	if cfg.CMCAPIKey != "" {
 		crypto = coinmarketcap.New("", cfg.CMCAPIKey)
@@ -130,6 +129,7 @@ func run() error {
 	})
 	investmentsSvc := investments.NewService(pool, currencySvc, nil)
 	investmentsSvc.SetMarket(marketSvc)
+	transfersHandler := transfers.NewHandler(transfers.NewService(pool, transactionsSvc, investmentsSvc, nil), authSvc, spacesSvc)
 	investmentsHandler := investments.NewHandler(investmentsSvc, authSvc, spacesSvc, investments.DefaultLimits())
 	marketHandler := marketdata.NewHandler(marketSvc, authSvc, marketdata.DefaultLimits())
 	stopMarket, err := marketSvc.StartJobs(ctx, log)

@@ -1872,7 +1872,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "The body is validated by `assetType` (see GET /investment-types). ID_STOCK takes `details.lots` and derives quantity = lots × 100. CRYPTO checks `details.stakedQuantity` \u003c= quantity. `priceMode: AUTO` is accepted for CRYPTO, US_STOCK and GLOBAL_ETF and answers 422 AUTO_PRICE_NOT_SUPPORTED otherwise. An AUTO investment is linked to a market instrument: send the `instrumentId` picked from GET /market/crypto/search (CRYPTO) or GET /market/stocks/search (US_STOCK, GLOBAL_ETF), or the symbol is resolved to the highest-ranked coin / the exact ticker (422 INSTRUMENT_NOT_FOUND if none matches). Without a market price the manual price is used.",
+                "description": "The body is validated by `assetType` (see GET /investment-types). ID_STOCK takes `details.lots` and derives quantity = lots × 100. CRYPTO checks `details.stakedQuantity` \u003c= quantity. `priceMode: AUTO` is accepted for CRYPTO, US_STOCK and GLOBAL_ETF and answers 422 AUTO_PRICE_NOT_SUPPORTED otherwise. An AUTO investment is linked to a market instrument: send the `instrumentId` picked from GET /market/crypto/search (CRYPTO) or GET /market/stocks/search (US_STOCK, GLOBAL_ETF), or the symbol is resolved to the highest-ranked coin / the exact ticker (422 INSTRUMENT_NOT_FOUND if none matches). Without a market price the manual price is used. Optional `funding: {walletId, amount?}` pays for the initial position from a wallet: it creates a BUY titled \"Initial position {symbol}\" (wallet debited quantity × avgBuyPrice + fees, converted to the wallet's currency unless `amount` is given) in the same database transaction.",
                 "consumes": [
                     "application/json"
                 ],
@@ -2796,7 +2796,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "`from` and `to` are `{type:\"WALLET\", walletId}`. `toAmount` is required when the wallets use different currencies (the stored rate is toAmount / amount); for the same currency it must equal `amount` or be omitted. Negative balances are allowed. `type:\"INVESTMENT\"` answers 422 NOT_SUPPORTED_YET until investments can be transfer endpoints. Transfers never count as income or expense; they show in the `transfer` column of the daily summary and in the history of both wallets.",
+                "description": "`from` and `to` are `{type:\"WALLET\", walletId}` or `{type:\"INVESTMENT\", investmentId, quantity, unitPrice, fee?}`.\\n\\n**Wallet → wallet**: `toAmount` is required when the wallets use different currencies (the stored rate is toAmount / amount); for the same currency it must equal `amount` or be omitted. Negative balances are allowed.\\n\\n**BUY** (wallet → investment): the wallet is debited quantity × unitPrice + fee, converted to the wallet's currency unless `amount` is given; the position becomes new_qty = q + Δq and new_avg = (q × avg + Δq × unitPrice) / new_qty, fees += fee.\\n\\n**SELL** (investment → wallet): the wallet is credited quantity × unitPrice − fee; the average stays; `realizedPl` = (unitPrice − avg) × Δq − fee. Selling more than quantity − stakedQuantity answers 422 INSUFFICIENT_QUANTITY.\\n\\nInvestment → investment is not supported. Transfers and trades never count as income or expense; they show in the `transfer` column of the daily summary and in the history of the wallet.",
                 "consumes": [
                     "application/json"
                 ],
@@ -2806,7 +2806,7 @@
                 "tags": [
                     "transfers"
                 ],
-                "summary": "Transfer between wallets",
+                "summary": "Transfer between wallets, or buy/sell an investment through a wallet",
                 "parameters": [
                     {
                         "type": "string",
@@ -2816,7 +2816,7 @@
                         "required": true
                     },
                     {
-                        "description": "Transfer",
+                        "description": "Transfer, BUY or SELL",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -2839,13 +2839,13 @@
                         }
                     },
                     "404": {
-                        "description": "space or wallet not found",
+                        "description": "space, wallet or investment not found",
                         "schema": {
                             "$ref": "#/definitions/httpx.ErrorEnvelope"
                         }
                     },
                     "422": {
-                        "description": "TRANSFER_SAME_WALLET / TRANSFER_AMOUNT_REQUIRED / NOT_SUPPORTED_YET",
+                        "description": "TRANSFER_SAME_WALLET / TRANSFER_AMOUNT_REQUIRED / NOT_SUPPORTED_YET / INSUFFICIENT_QUANTITY / FX_RATE_UNAVAILABLE",
                         "schema": {
                             "$ref": "#/definitions/httpx.ErrorEnvelope"
                         }
@@ -2860,10 +2860,11 @@
                         "BearerAuth": []
                     }
                 ],
+                "description": "A BUY/SELL can only be deleted while the investment's position is still the one it left behind (409 POSITION_CHANGED_SINCE).",
                 "tags": [
                     "transfers"
                 ],
-                "summary": "Delete a transfer (both balances are restored)",
+                "summary": "Delete a transfer, BUY or SELL (balances and position are restored)",
                 "parameters": [
                     {
                         "type": "string",
@@ -2889,6 +2890,12 @@
                         "schema": {
                             "$ref": "#/definitions/httpx.ErrorEnvelope"
                         }
+                    },
+                    "409": {
+                        "description": "POSITION_CHANGED_SINCE",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
                     }
                 }
             },
@@ -2898,7 +2905,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Any field may be sent; the old effect is reversed and the new one applied atomically. Changing the amount or either wallet of a cross-currency transfer requires `toAmount`.",
+                "description": "Any field may be sent; the old effect is reversed and the new one applied atomically. For wallet transfers, changing the amount or either wallet of a cross-currency transfer requires `toAmount`. For a BUY/SELL, send the investment side as `{type:\"INVESTMENT\", quantity?, unitPrice?, fee?}` and the wallet side as `{type:\"WALLET\", walletId}`; the investment itself cannot change. A BUY/SELL can only be edited (or deleted) while the investment's position is still the one it left behind, otherwise 409 POSITION_CHANGED_SINCE.",
                 "consumes": [
                     "application/json"
                 ],
@@ -2908,7 +2915,7 @@
                 "tags": [
                     "transfers"
                 ],
-                "summary": "Edit a transfer",
+                "summary": "Edit a transfer, BUY or SELL",
                 "parameters": [
                     {
                         "type": "string",
@@ -2953,8 +2960,14 @@
                             "$ref": "#/definitions/httpx.ErrorEnvelope"
                         }
                     },
+                    "409": {
+                        "description": "POSITION_CHANGED_SINCE",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
                     "422": {
-                        "description": "TRANSFER_SAME_WALLET / TRANSFER_AMOUNT_REQUIRED / NOT_SUPPORTED_YET",
+                        "description": "TRANSFER_SAME_WALLET / TRANSFER_AMOUNT_REQUIRED / NOT_SUPPORTED_YET / INSUFFICIENT_QUANTITY",
                         "schema": {
                             "$ref": "#/definitions/httpx.ErrorEnvelope"
                         }
@@ -3964,6 +3977,14 @@
                 "fees": {
                     "type": "string"
                 },
+                "funding": {
+                    "description": "Funding pays the initial position from a wallet (optional).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/investments.Funding"
+                        }
+                    ]
+                },
                 "icon": {
                     "type": "string"
                 },
@@ -4030,6 +4051,18 @@
                 },
                 "required": {
                     "type": "boolean"
+                }
+            }
+        },
+        "investments.Funding": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "type": "string",
+                    "example": "1000000"
+                },
+                "walletId": {
+                    "type": "string"
                 }
             }
         },
@@ -4103,6 +4136,9 @@
                 "quoteCurrency": {
                     "type": "string",
                     "example": "IDR"
+                },
+                "realizedPl": {
+                    "$ref": "#/definitions/investments.RealizedPLDTO"
                 },
                 "symbol": {
                     "type": "string"
@@ -4188,6 +4224,25 @@
                 },
                 "symbol": {
                     "type": "string"
+                }
+            }
+        },
+        "investments.RealizedPLDTO": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "type": "string",
+                    "example": "5990"
+                },
+                "base": {
+                    "type": "string"
+                },
+                "currency": {
+                    "type": "string",
+                    "example": "USD"
+                },
+                "sells": {
+                    "type": "integer"
                 }
             }
         },
@@ -4532,6 +4587,23 @@
                 }
             }
         },
+        "transactions.InvestmentRef": {
+            "type": "object",
+            "properties": {
+                "icon": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "symbol": {
+                    "type": "string"
+                }
+            }
+        },
         "transactions.ListResponse": {
             "type": "object",
             "properties": {
@@ -4590,16 +4662,40 @@
                         "OUT"
                     ]
                 },
+                "fee": {
+                    "type": "string"
+                },
                 "fxRate": {
                     "type": "string"
                 },
                 "id": {
                     "type": "string"
                 },
+                "investment": {
+                    "description": "Investment trades: a BUY (wallet → investment) or SELL (investment → wallet).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/transactions.InvestmentRef"
+                        }
+                    ]
+                },
+                "investmentAction": {
+                    "type": "string",
+                    "enum": [
+                        "BUY",
+                        "SELL"
+                    ]
+                },
                 "note": {
                     "type": "string"
                 },
                 "occurredAt": {
+                    "type": "string"
+                },
+                "quantity": {
+                    "type": "string"
+                },
+                "realizedPl": {
                     "type": "string"
                 },
                 "title": {
@@ -4623,6 +4719,9 @@
                         "ADJUSTMENT",
                         "OPENING_BALANCE"
                     ]
+                },
+                "unitPrice": {
+                    "type": "string"
                 },
                 "updatedAt": {
                     "type": "string"
@@ -4718,11 +4817,9 @@
         },
         "transfers.createRequest": {
             "type": "object",
-            "required": [
-                "amount"
-            ],
             "properties": {
                 "amount": {
+                    "description": "Amount is required between two wallets. For a BUY or SELL it is the wallet side\n(debited / credited) and optional: it defaults to the trade value, converted\nto the wallet's currency when needed.",
                     "type": "string",
                     "example": "100.00"
                 },

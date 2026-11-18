@@ -62,25 +62,40 @@ type Ref struct {
 	Color *string   `json:"color,omitempty"`
 }
 
+// InvestmentRef is the investment a BUY/SELL belongs to.
+type InvestmentRef struct {
+	ID     uuid.UUID `json:"id"`
+	Name   string    `json:"name"`
+	Symbol *string   `json:"symbol"`
+	Icon   string    `json:"icon"`
+}
+
 // TransactionDTO is the public representation of a transaction.
 type TransactionDTO struct {
-	ID          uuid.UUID        `json:"id"`
-	Type        string           `json:"type" enums:"INCOME,EXPENSE,TRANSFER,ADJUSTMENT,OPENING_BALANCE"`
-	Direction   *string          `json:"direction,omitempty" enums:"IN,OUT"`
-	Title       *string          `json:"title"`
-	Note        *string          `json:"note"`
-	Amount      decimal.Decimal  `json:"amount" swaggertype:"string" example:"50000"`
-	Currency    string           `json:"currency" example:"IDR"`
-	Wallet      *Ref             `json:"wallet"`
-	Category    *Ref             `json:"category"`
-	ToWallet    *Ref             `json:"toWallet,omitempty"`
-	ToAmount    *decimal.Decimal `json:"toAmount,omitempty" swaggertype:"string"`
-	ToCurrency  *string          `json:"toCurrency,omitempty"`
-	FxRate      *decimal.Decimal `json:"fxRate,omitempty" swaggertype:"string"`
-	OccurredAt  time.Time        `json:"occurredAt"`
-	CreatedByID uuid.UUID        `json:"createdById"`
-	CreatedAt   time.Time        `json:"createdAt"`
-	UpdatedAt   time.Time        `json:"updatedAt"`
+	ID        uuid.UUID       `json:"id"`
+	Type      string          `json:"type" enums:"INCOME,EXPENSE,TRANSFER,ADJUSTMENT,OPENING_BALANCE"`
+	Direction *string         `json:"direction,omitempty" enums:"IN,OUT"`
+	Title     *string         `json:"title"`
+	Note      *string         `json:"note"`
+	Amount    decimal.Decimal `json:"amount" swaggertype:"string" example:"50000"`
+	Currency  string          `json:"currency" example:"IDR"`
+	Wallet    *Ref            `json:"wallet"`
+	Category  *Ref            `json:"category"`
+	ToWallet  *Ref            `json:"toWallet,omitempty"`
+	// Investment trades: a BUY (wallet → investment) or SELL (investment → wallet).
+	Investment       *InvestmentRef   `json:"investment,omitempty"`
+	InvestmentAction *string          `json:"investmentAction,omitempty" enums:"BUY,SELL"`
+	Quantity         *decimal.Decimal `json:"quantity,omitempty" swaggertype:"string"`
+	UnitPrice        *decimal.Decimal `json:"unitPrice,omitempty" swaggertype:"string"`
+	Fee              *decimal.Decimal `json:"fee,omitempty" swaggertype:"string"`
+	RealizedPL       *decimal.Decimal `json:"realizedPl,omitempty" swaggertype:"string"`
+	ToAmount         *decimal.Decimal `json:"toAmount,omitempty" swaggertype:"string"`
+	ToCurrency       *string          `json:"toCurrency,omitempty"`
+	FxRate           *decimal.Decimal `json:"fxRate,omitempty" swaggertype:"string"`
+	OccurredAt       time.Time        `json:"occurredAt"`
+	CreatedByID      uuid.UUID        `json:"createdById"`
+	CreatedAt        time.Time        `json:"createdAt"`
+	UpdatedAt        time.Time        `json:"updatedAt"`
 }
 
 func ref(id uuid.NullUUID, name, icon, color *string) *Ref {
@@ -116,6 +131,22 @@ func ToDTO(d Detail) TransactionDTO {
 	if d.FxRate.Valid {
 		v := d.FxRate.Decimal
 		t.FxRate = &v
+	}
+	if d.InvestmentID.Valid && d.InvestmentName != nil {
+		ic := ""
+		if d.InvestmentIcon != nil {
+			ic = *d.InvestmentIcon
+		}
+		t.Investment = &InvestmentRef{ID: d.InvestmentID.UUID, Name: *d.InvestmentName, Symbol: d.InvestmentSymbol, Icon: ic}
+		t.InvestmentAction = d.InvestmentAction
+		opt := func(n decimal.NullDecimal) *decimal.Decimal {
+			if !n.Valid {
+				return nil
+			}
+			v := n.Decimal
+			return &v
+		}
+		t.Quantity, t.UnitPrice, t.Fee, t.RealizedPL = opt(d.Quantity), opt(d.UnitPrice), opt(d.Fee), opt(d.RealizedPl)
 	}
 	return t
 }
