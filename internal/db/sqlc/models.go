@@ -75,3 +75,14 @@ type User struct {
 	UpdatedAt         time.Time     `json:"updated_at"`
 	DeletedAt         *time.Time    `json:"deleted_at"`
 }
+
+type UserPreference struct {
+	UserID                uuid.UUID  `json:"user_id"`
+	HideAmounts           bool       `json:"hide_amounts"`
+	KeyboardType          string     `json:"keyboard_type"`
+	AppLockEnabled        bool       `json:"app_lock_enabled"`
+	AppLockPinHash        *string    `json:"-"`
+	AppLockFailedAttempts int32      `json:"app_lock_failed_attempts"`
+	AppLockLockedUntil    *time.Time `json:"app_lock_locked_until"`
+	UpdatedAt             time.Time  `json:"updated_at"`
+}
