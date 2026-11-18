@@ -177,6 +177,19 @@ type MarketPrice struct {
 	FetchedAt    time.Time           `json:"fetched_at"`
 }
 
+type NetWorthSnapshot struct {
+	SpaceID     uuid.UUID       `json:"space_id"`
+	Date        time.Time       `json:"date"`
+	Currency    string          `json:"currency"`
+	Cash        decimal.Decimal `json:"cash"`
+	Investments decimal.Decimal `json:"investments"`
+	FixedAssets decimal.Decimal `json:"fixed_assets"`
+	Receivables decimal.Decimal `json:"receivables"`
+	Liabilities decimal.Decimal `json:"liabilities"`
+	NetWorth    decimal.Decimal `json:"net_worth"`
+	CreatedAt   time.Time       `json:"created_at"`
+}
+
 type PasswordResetToken struct {
 	ID        uuid.UUID  `json:"id"`
 	UserID    uuid.UUID  `json:"user_id"`

@@ -180,3 +180,54 @@ func budgetPeriod(today time.Time, startDay int) (time.Time, time.Time) {
 	}
 	return periodStart(py, pm, startDay, loc), thisStart
 }
+
+// Previous returns the period right before a preset's period, for "vs previous
+// period" comparisons: yesterday for TODAY, last week, the previous budget
+// period, the N days before a LAST_N_DAYS window, the previous year. ALL_TIME has
+// none (ok is false).
+func Previous(preset string, o Opts) (r Range, ok bool, err error) {
+	loc := o.loc()
+	now := o.Now.In(loc)
+	today := startOfDay(now)
+	span := func(from, to time.Time) (Range, bool, error) {
+		f, t := from.UTC(), to.UTC()
+		return Range{From: &f, To: &t}, true, nil
+	}
+	switch strings.ToUpper(strings.TrimSpace(preset)) {
+	case Today:
+		return span(addDays(today, -1), today)
+	case ThisWeek:
+		offset := (int(today.Weekday()) + 6) % 7
+		start := addDays(today, -offset)
+		return span(addDays(start, -7), start)
+	case ThisPeriod:
+		from, _ := budgetPeriod(today, o.BudgetStartDay)
+		pf, pt := budgetPeriod(addDays(from, -1), o.BudgetStartDay)
+		return span(pf, pt)
+	case Last7Days:
+		return span(addDays(today, -13), addDays(today, -6))
+	case Last30Days:
+		return span(addDays(today, -59), addDays(today, -29))
+	case Last60Days:
+		return span(addDays(today, -119), addDays(today, -59))
+	case Last90Days:
+		return span(addDays(today, -179), addDays(today, -89))
+	case ThisYear:
+		return span(time.Date(now.Year()-1, time.January, 1, 0, 0, 0, 0, loc), time.Date(now.Year(), time.January, 1, 0, 0, 0, 0, loc))
+	case AllTime:
+		return Range{}, false, nil
+	default:
+		return Range{}, false, fmt.Errorf("unknown period %q", preset)
+	}
+}
+
+// PreviousOfRange is the window of the same length immediately before a bounded
+// range (used for custom date ranges); ok is false when the range is unbounded.
+func PreviousOfRange(r Range) (Range, bool) {
+	if r.From == nil || r.To == nil {
+		return Range{}, false
+	}
+	d := r.To.Sub(*r.From)
+	f := r.From.Add(-d)
+	return Range{From: &f, To: r.From}, true
+}
