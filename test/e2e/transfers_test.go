@@ -140,13 +140,18 @@ func TestCreateTransfer(t *testing.T) {
 		assert.Equal(t, http.StatusCreated, e.post(body).Status)
 	})
 
-	t.Run("investments are not supported yet", func(t *testing.T) {
+	t.Run("investment to investment is not supported", func(t *testing.T) {
+		leg := map[string]any{"type": "INVESTMENT", "investmentId": uuid.NewString(), "quantity": "1", "unitPrice": "1"}
+		res := e.post(map[string]any{"from": leg, "to": leg, "amount": "5"})
+		require.Equal(t, http.StatusUnprocessableEntity, res.Status, string(res.Body))
+		assert.Equal(t, "NOT_SUPPORTED_YET", errCode(t, res))
+	})
+
+	t.Run("an incomplete investment leg is a validation error", func(t *testing.T) {
 		for _, side := range []string{"from", "to"} {
 			body := xfer(e.a, e.b, "5")
 			body[side] = map[string]any{"type": "INVESTMENT", "investmentId": uuid.NewString()}
-			res := e.post(body)
-			require.Equal(t, http.StatusUnprocessableEntity, res.Status, string(res.Body))
-			assert.Equal(t, "NOT_SUPPORTED_YET", errCode(t, res), side)
+			assert.Equal(t, http.StatusBadRequest, e.post(body).Status, side)
 		}
 	})
 
