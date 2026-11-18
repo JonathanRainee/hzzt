@@ -284,7 +284,7 @@ Full field lists are defined in each phase. This is the map.
 | P12 | US stock / ETF auto pricing (Massive) | P11 | M3 | Done |
 | P13 | Investment buy/sell through wallets | P9, P10 | M3 | Done |
 | P14 | Shared investments | P10, P13 | M3 | Done |
-| P15 | Other assets & net-worth summary | P9, P14 | M4 Net worth & planning | Backlog |
+| P15 | Other assets & net-worth summary | P9, P14 | M4 Net worth & planning | Done |
 | P16 | Goals | P7 | M4 | Backlog |
 | P17 | Dashboard, analytics & net-worth history | P8, P15 | M4 | Backlog |
 | P18 | Hardening, docs & deployment | all | M5 Production | Backlog |
@@ -1090,6 +1090,7 @@ DELIVERABLES (report back)
 | SHARE_INVITATION_ANSWERED | 409 | P14 |
 | SHARE_OWNER_CANNOT_LEAVE | 422 | P14 |
 | SETTLEMENT_EXCEEDS_BALANCE | 422 | P15 |
+| SETTLEMENT_CURRENCY_MISMATCH, SETTLEMENT_NOT_SUPPORTED, MANUAL_ASSET_CURRENCY_LOCKED | 422 | P15 |
 | INSUFFICIENT_AVAILABLE_BALANCE | 422 | P16 |
 
 ---
