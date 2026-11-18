@@ -36,7 +36,7 @@ type Spec struct {
 	// Details is one of the *Details structs below.
 	Details any
 	// InstrumentID is the market instrument the client picked from search
-	// (CRYPTO only for now); nil means "resolve from the symbol when AUTO".
+	// (CRYPTO, US_STOCK and GLOBAL_ETF); nil means "resolve from the symbol when AUTO".
 	InstrumentID *uuid.UUID
 }
 
@@ -185,10 +185,11 @@ type idStockInput struct {
 }
 
 type usStockInput struct {
-	AssetType string           `json:"assetType"`
-	Name      string           `json:"name" validate:"required,min=1,max=120"`
-	Quantity  *decimal.Decimal `json:"quantity" validate:"required" swaggertype:"string"`
-	Details   usStockDetails   `json:"details"`
+	AssetType    string           `json:"assetType"`
+	Name         string           `json:"name" validate:"required,min=1,max=120"`
+	Quantity     *decimal.Decimal `json:"quantity" validate:"required" swaggertype:"string"`
+	InstrumentID *uuid.UUID       `json:"instrumentId" swaggertype:"string"`
+	Details      usStockDetails   `json:"details"`
 	base
 }
 
@@ -201,10 +202,11 @@ type mutualFundInput struct {
 }
 
 type globalETFInput struct {
-	AssetType string           `json:"assetType"`
-	Name      string           `json:"name" validate:"required,min=1,max=120"`
-	Quantity  *decimal.Decimal `json:"quantity" validate:"required" swaggertype:"string"`
-	Details   globalETFDetails `json:"details"`
+	AssetType    string           `json:"assetType"`
+	Name         string           `json:"name" validate:"required,min=1,max=120"`
+	Quantity     *decimal.Decimal `json:"quantity" validate:"required" swaggertype:"string"`
+	InstrumentID *uuid.UUID       `json:"instrumentId" swaggertype:"string"`
+	Details      globalETFDetails `json:"details"`
 	base
 }
 
@@ -222,13 +224,17 @@ func (in *idStockInput) spec(bc string) (Spec, error) {
 	return buildSpec(TypeIDStock, in.Name, &in.base, nil, in.Details, bc)
 }
 func (in *usStockInput) spec(bc string) (Spec, error) {
-	return buildSpec(TypeUSStock, in.Name, &in.base, in.Quantity, in.Details, bc)
+	s, err := buildSpec(TypeUSStock, in.Name, &in.base, in.Quantity, in.Details, bc)
+	s.InstrumentID = in.InstrumentID
+	return s, err
 }
 func (in *mutualFundInput) spec(bc string) (Spec, error) {
 	return buildSpec(TypeMutualFund, in.Name, &in.base, in.Quantity, in.Details, bc)
 }
 func (in *globalETFInput) spec(bc string) (Spec, error) {
-	return buildSpec(TypeGlobalETF, in.Name, &in.base, in.Quantity, in.Details, bc)
+	s, err := buildSpec(TypeGlobalETF, in.Name, &in.base, in.Quantity, in.Details, bc)
+	s.InstrumentID = in.InstrumentID
+	return s, err
 }
 
 // Variants maps assetType to its create input for httpx.DecodeDiscriminated.
@@ -484,7 +490,7 @@ type PatchInput struct {
 	PurchaseDate             nullStr          `json:"purchaseDate" swaggertype:"string"`
 	EstimatedAnnualChangePct *decimal.Decimal `json:"estimatedAnnualChangePct" swaggertype:"string"`
 	ManualFxRate             nullDec          `json:"manualFxRate" swaggertype:"string"`
-	// InstrumentID relinks a CRYPTO investment to a coin picked from search.
+	// InstrumentID relinks an auto-priced investment to an instrument picked from search.
 	InstrumentID *uuid.UUID      `json:"instrumentId" swaggertype:"string"`
 	Details      json.RawMessage `json:"details" swaggertype:"object"`
 }
@@ -528,8 +534,8 @@ func (p PatchInput) apply(inv sqlc.Investment, baseCurrency string) (Spec, error
 		s.PriceMode = *p.PriceMode
 	}
 	if p.InstrumentID != nil {
-		if s.AssetType != TypeCrypto {
-			f["instrumentId"] = "is only supported for CRYPTO investments"
+		if m, _ := MetaFor(s.AssetType); !m.SupportsAutoPrice {
+			f["instrumentId"] = "is only supported for auto-priced asset types (CRYPTO, US_STOCK, GLOBAL_ETF)"
 		}
 		s.InstrumentID = p.InstrumentID
 	}

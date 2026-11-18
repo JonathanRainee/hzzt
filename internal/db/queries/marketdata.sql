@@ -51,14 +51,6 @@ SELECT * FROM market_prices WHERE instrument_id = ANY($1::uuid[]);
 -- name: HasMarketPrice :one
 SELECT EXISTS (SELECT 1 FROM market_prices WHERE instrument_id = $1);
 
--- name: AutoPricedInstruments :many
--- Distinct instruments of live AUTO investments of one provider/kind.
-SELECT DISTINCT i.id, i.external_id
-FROM investments inv
-JOIN market_instruments i ON i.id = inv.instrument_id
-WHERE inv.deleted_at IS NULL AND inv.price_mode = 'AUTO' AND i.provider = $1 AND i.kind = $2 AND i.active
-ORDER BY i.external_id;
-
 -- name: InsertJobRun :exec
 INSERT INTO job_runs (name, started_at, finished_at, status, items_processed, error)
 VALUES ($1, $2, $3, $4, $5, sqlc.narg('error'));
@@ -70,3 +62,17 @@ SELECT pg_try_advisory_xact_lock(hashtextextended($1::text, 0));
 -- name: SetInvestmentInstrument :exec
 UPDATE investments SET instrument_id = sqlc.narg('instrument_id'), updated_at = now()
 WHERE id = $1 AND space_id = $2 AND deleted_at IS NULL;
+
+-- name: AutoPricedByProvider :many
+-- Distinct instruments of live AUTO investments for one provider (any kind).
+SELECT DISTINCT i.id, i.external_id, i.symbol
+FROM investments inv
+JOIN market_instruments i ON i.id = inv.instrument_id
+WHERE inv.deleted_at IS NULL AND inv.price_mode = 'AUTO' AND i.provider = $1 AND i.active
+ORDER BY i.external_id;
+
+-- name: GetMarketPricesWithProvider :many
+SELECT p.instrument_id, p.price, p.as_of, i.provider
+FROM market_prices p
+JOIN market_instruments i ON i.id = p.instrument_id
+WHERE p.instrument_id = ANY($1::uuid[]);

@@ -84,6 +84,7 @@ type TestServer struct {
 	Investments *investments.Service
 	Market      *marketdata.Service
 	CMC         *FakeCMC
+	Massive     *FakeMassive
 	t           *testing.T
 }
 
@@ -179,18 +180,21 @@ func newTestServer(t *testing.T, limits auth.Limits, userLimits users.Limits, in
 	transactionsHandler := transactions.NewHandler(transactionsSvc, svc, spacesSvc)
 	transfersHandler := transfers.NewHandler(transfers.NewService(tx, transactionsSvc, clock.Now), svc, spacesSvc)
 	cmc := &FakeCMC{now: clock.Now, Coins: defaultCoins(), Quotes: map[int64]string{1: "63000", 1027: "1800", 825: "1", 5426: "150"}}
-	marketSvc := marketdata.NewService(tx, marketdata.Options{Crypto: cmc, Log: log, Now: clock.Now})
+	mas := newFakeMassive()
+	marketSvc := marketdata.NewService(tx, marketdata.Options{
+		Crypto: cmc, Stocks: mas, Strategy: &marketdata.EodStrategy{Provider: mas}, Log: log, Now: clock.Now,
+	})
 	_, err = marketSvc.SyncCoinMap(ctx)
 	require.NoError(t, err)
 	cmc.MapCalls, cmc.PriceCalls = 0, 0
 	investmentsSvc := investments.NewService(tx, currencySvc, clock.Now)
 	investmentsSvc.SetMarket(marketSvc)
 	investmentsHandler := investments.NewHandler(investmentsSvc, svc, spacesSvc, invLimits)
-	marketHandler := marketdata.NewHandler(marketSvc, svc)
+	marketHandler := marketdata.NewHandler(marketSvc, svc, marketLimits())
 	srv := httptest.NewServer(server.NewRouter(cfg, log, sqlc.New(tx), handler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount, walletsHandler.Mount, transactionsHandler.Mount, transfersHandler.Mount, investmentsHandler.Mount, marketHandler.Mount))
 	t.Cleanup(srv.Close)
 
-	ts := &TestServer{Server: srv, Tx: tx, Email: mail, Events: bus, Auth: svc, Clock: clock, FX: fx, Currency: currencySvc, Categories: categoriesSvc, Investments: investmentsSvc, Market: marketSvc, CMC: cmc, t: t}
+	ts := &TestServer{Server: srv, Tx: tx, Email: mail, Events: bus, Auth: svc, Clock: clock, FX: fx, Currency: currencySvc, Categories: categoriesSvc, Investments: investmentsSvc, Market: marketSvc, CMC: cmc, Massive: mas, t: t}
 	// Registered after the rollback cleanup, so it runs first: the ledger
 	// invariant must hold at the end of every test.
 	t.Cleanup(func() {
@@ -279,4 +283,22 @@ func (c *testClock) Advance(d time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.offset += d
+}
+
+// testMarketLimits overrides the market endpoints' rate limits for one test.
+var testMarketLimits *marketdata.Limits
+
+func marketLimits() marketdata.Limits {
+	if testMarketLimits != nil {
+		return *testMarketLimits
+	}
+	return marketdata.Limits{StockSearch: httpx.NewRateLimiter(1000, time.Minute)}
+}
+
+// NewTestServerWithMarketLimits is NewTestServer with explicit market endpoint rate limits.
+func NewTestServerWithMarketLimits(t *testing.T, limits marketdata.Limits) *TestServer {
+	t.Helper()
+	testMarketLimits = &limits
+	t.Cleanup(func() { testMarketLimits = nil })
+	return NewTestServer(t)
 }

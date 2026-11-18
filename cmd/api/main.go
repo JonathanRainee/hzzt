@@ -22,6 +22,7 @@ import (
 	"github.com/JonathanRainee/hzzt/internal/investments"
 	"github.com/JonathanRainee/hzzt/internal/marketdata"
 	"github.com/JonathanRainee/hzzt/internal/marketdata/coinmarketcap"
+	"github.com/JonathanRainee/hzzt/internal/marketdata/massive"
 	"github.com/JonathanRainee/hzzt/internal/platform/email"
 	"github.com/JonathanRainee/hzzt/internal/platform/events"
 	"github.com/JonathanRainee/hzzt/internal/server"
@@ -114,11 +115,23 @@ func run() error {
 	if cfg.CMCAPIKey != "" {
 		crypto = coinmarketcap.New("", cfg.CMCAPIKey)
 	}
-	marketSvc := marketdata.NewService(pool, marketdata.Options{Crypto: crypto, Log: log, RefreshMinutes: cfg.CMCRefreshMinutes})
+	var stocks marketdata.StockProvider // nil interfaces when no key is configured
+	var strategy marketdata.PriceStrategy
+	if cfg.MassiveAPIKey != "" {
+		client := massive.New("", cfg.MassiveAPIKey, cfg.MassiveRatePerMinute)
+		strategy, err = marketdata.NewStrategy(cfg.MassiveMode, client)
+		if err != nil {
+			return err
+		}
+		stocks = client
+	}
+	marketSvc := marketdata.NewService(pool, marketdata.Options{
+		Crypto: crypto, Stocks: stocks, Strategy: strategy, Log: log, RefreshMinutes: cfg.CMCRefreshMinutes,
+	})
 	investmentsSvc := investments.NewService(pool, currencySvc, nil)
 	investmentsSvc.SetMarket(marketSvc)
 	investmentsHandler := investments.NewHandler(investmentsSvc, authSvc, spacesSvc, investments.DefaultLimits())
-	marketHandler := marketdata.NewHandler(marketSvc, authSvc)
+	marketHandler := marketdata.NewHandler(marketSvc, authSvc, marketdata.DefaultLimits())
 	stopMarket, err := marketSvc.StartJobs(ctx, log)
 	if err != nil {
 		return err

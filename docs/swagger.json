@@ -616,6 +616,67 @@
                 }
             }
         },
+        "/market/stocks/search": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Checks the local instrument list first and asks Massive too when there are fewer than 5 local hits (throttled; results are cached as instruments). If the provider is throttled or unavailable the local hits are returned. Send the chosen `instrumentId` when creating an AUTO US_STOCK (kind=STOCK) or GLOBAL_ETF (kind=ETF) investment. Limited to 20 requests per minute per user.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "market"
+                ],
+                "summary": "Search US stocks and ETFs by ticker or name",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Search text",
+                        "name": "q",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "STOCK (default) or ETF",
+                        "name": "kind",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Max results (default 20, max 50)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/marketdata.InstrumentDTO"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/me": {
             "get": {
                 "security": [
@@ -1811,7 +1872,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "The body is validated by `assetType` (see GET /investment-types). ID_STOCK takes `details.lots` and derives quantity = lots × 100. CRYPTO checks `details.stakedQuantity` \u003c= quantity. `priceMode: AUTO` is accepted for CRYPTO, US_STOCK and GLOBAL_ETF and answers 422 AUTO_PRICE_NOT_SUPPORTED otherwise. An AUTO CRYPTO investment is linked to a coin: send the `instrumentId` picked from GET /market/crypto/search, or the symbol is resolved to the highest-ranked coin (422 INSTRUMENT_NOT_FOUND if none matches). Without a market price the manual price is used.",
+                "description": "The body is validated by `assetType` (see GET /investment-types). ID_STOCK takes `details.lots` and derives quantity = lots × 100. CRYPTO checks `details.stakedQuantity` \u003c= quantity. `priceMode: AUTO` is accepted for CRYPTO, US_STOCK and GLOBAL_ETF and answers 422 AUTO_PRICE_NOT_SUPPORTED otherwise. An AUTO investment is linked to a market instrument: send the `instrumentId` picked from GET /market/crypto/search (CRYPTO) or GET /market/stocks/search (US_STOCK, GLOBAL_ETF), or the symbol is resolved to the highest-ranked coin / the exact ticker (422 INSTRUMENT_NOT_FOUND if none matches). Without a market price the manual price is used.",
                 "consumes": [
                     "application/json"
                 ],
@@ -4091,7 +4152,7 @@
                     "maxLength": 64
                 },
                 "instrumentId": {
-                    "description": "InstrumentID relinks a CRYPTO investment to a coin picked from search.",
+                    "description": "InstrumentID relinks an auto-priced investment to an instrument picked from search.",
                     "type": "string"
                 },
                 "manualCurrentValue": {

@@ -13,35 +13,31 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-const autoPricedInstruments = `-- name: AutoPricedInstruments :many
-SELECT DISTINCT i.id, i.external_id
+const autoPricedByProvider = `-- name: AutoPricedByProvider :many
+SELECT DISTINCT i.id, i.external_id, i.symbol
 FROM investments inv
 JOIN market_instruments i ON i.id = inv.instrument_id
-WHERE inv.deleted_at IS NULL AND inv.price_mode = 'AUTO' AND i.provider = $1 AND i.kind = $2 AND i.active
+WHERE inv.deleted_at IS NULL AND inv.price_mode = 'AUTO' AND i.provider = $1 AND i.active
 ORDER BY i.external_id
 `
 
-type AutoPricedInstrumentsParams struct {
-	Provider string `json:"provider"`
-	Kind     string `json:"kind"`
-}
-
-type AutoPricedInstrumentsRow struct {
+type AutoPricedByProviderRow struct {
 	ID         uuid.UUID `json:"id"`
 	ExternalID string    `json:"external_id"`
+	Symbol     string    `json:"symbol"`
 }
 
-// Distinct instruments of live AUTO investments of one provider/kind.
-func (q *Queries) AutoPricedInstruments(ctx context.Context, arg AutoPricedInstrumentsParams) ([]AutoPricedInstrumentsRow, error) {
-	rows, err := q.db.Query(ctx, autoPricedInstruments, arg.Provider, arg.Kind)
+// Distinct instruments of live AUTO investments for one provider (any kind).
+func (q *Queries) AutoPricedByProvider(ctx context.Context, provider string) ([]AutoPricedByProviderRow, error) {
+	rows, err := q.db.Query(ctx, autoPricedByProvider, provider)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []AutoPricedInstrumentsRow{}
+	items := []AutoPricedByProviderRow{}
 	for rows.Next() {
-		var i AutoPricedInstrumentsRow
-		if err := rows.Scan(&i.ID, &i.ExternalID); err != nil {
+		var i AutoPricedByProviderRow
+		if err := rows.Scan(&i.ID, &i.ExternalID, &i.Symbol); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -141,6 +137,45 @@ func (q *Queries) GetMarketPrices(ctx context.Context, dollar_1 []uuid.UUID) ([]
 			&i.Change24hPct,
 			&i.AsOf,
 			&i.FetchedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getMarketPricesWithProvider = `-- name: GetMarketPricesWithProvider :many
+SELECT p.instrument_id, p.price, p.as_of, i.provider
+FROM market_prices p
+JOIN market_instruments i ON i.id = p.instrument_id
+WHERE p.instrument_id = ANY($1::uuid[])
+`
+
+type GetMarketPricesWithProviderRow struct {
+	InstrumentID uuid.UUID       `json:"instrument_id"`
+	Price        decimal.Decimal `json:"price"`
+	AsOf         time.Time       `json:"as_of"`
+	Provider     string          `json:"provider"`
+}
+
+func (q *Queries) GetMarketPricesWithProvider(ctx context.Context, dollar_1 []uuid.UUID) ([]GetMarketPricesWithProviderRow, error) {
+	rows, err := q.db.Query(ctx, getMarketPricesWithProvider, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetMarketPricesWithProviderRow{}
+	for rows.Next() {
+		var i GetMarketPricesWithProviderRow
+		if err := rows.Scan(
+			&i.InstrumentID,
+			&i.Price,
+			&i.AsOf,
+			&i.Provider,
 		); err != nil {
 			return nil, err
 		}

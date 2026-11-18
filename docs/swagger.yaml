@@ -476,8 +476,8 @@ definitions:
         maxLength: 64
         type: string
       instrumentId:
-        description: InstrumentID relinks a CRYPTO investment to a coin picked from
-          search.
+        description: InstrumentID relinks an auto-priced investment to an instrument
+          picked from search.
         type: string
       manualCurrentValue:
         type: string
@@ -1538,6 +1538,49 @@ paths:
       summary: Search coins by symbol or name
       tags:
       - market
+  /market/stocks/search:
+    get:
+      description: Checks the local instrument list first and asks Massive too when
+        there are fewer than 5 local hits (throttled; results are cached as instruments).
+        If the provider is throttled or unavailable the local hits are returned. Send
+        the chosen `instrumentId` when creating an AUTO US_STOCK (kind=STOCK) or GLOBAL_ETF
+        (kind=ETF) investment. Limited to 20 requests per minute per user.
+      parameters:
+      - description: Search text
+        in: query
+        name: q
+        required: true
+        type: string
+      - description: STOCK (default) or ETF
+        in: query
+        name: kind
+        type: string
+      - description: Max results (default 20, max 50)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/marketdata.InstrumentDTO'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Search US stocks and ETFs by ticker or name
+      tags:
+      - market
   /me:
     delete:
       consumes:
@@ -2309,10 +2352,11 @@ paths:
         ID_STOCK takes `details.lots` and derives quantity = lots × 100. CRYPTO checks
         `details.stakedQuantity` <= quantity. `priceMode: AUTO` is accepted for CRYPTO,
         US_STOCK and GLOBAL_ETF and answers 422 AUTO_PRICE_NOT_SUPPORTED otherwise.
-        An AUTO CRYPTO investment is linked to a coin: send the `instrumentId` picked
-        from GET /market/crypto/search, or the symbol is resolved to the highest-ranked
-        coin (422 INSTRUMENT_NOT_FOUND if none matches). Without a market price the
-        manual price is used.'
+        An AUTO investment is linked to a market instrument: send the `instrumentId`
+        picked from GET /market/crypto/search (CRYPTO) or GET /market/stocks/search
+        (US_STOCK, GLOBAL_ETF), or the symbol is resolved to the highest-ranked coin
+        / the exact ticker (422 INSTRUMENT_NOT_FOUND if none matches). Without a market
+        price the manual price is used.'
       parameters:
       - description: Space ID
         in: path

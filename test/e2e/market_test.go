@@ -52,7 +52,7 @@ type jobRow struct {
 func (s *TestServer) jobRuns(name string) []jobRow {
 	s.t.Helper()
 	rows, err := s.Tx.Query(context.Background(),
-		`SELECT name, status, items_processed, error FROM job_runs WHERE name = $1 ORDER BY started_at, id`, name)
+		`SELECT name, status, items_processed, error FROM job_runs WHERE name = $1 ORDER BY ctid`, name)
 	require.NoError(s.t, err)
 	defer rows.Close()
 	var out []jobRow
@@ -272,10 +272,20 @@ func TestAutoCryptoInvestmentLinksAndPrices(t *testing.T) {
 		assert.Equal(t, btc, *relinked.InstrumentID, "explicit relink")
 	})
 
-	t.Run("instrumentId is only for crypto", func(t *testing.T) {
-		assert.Equal(t, http.StatusBadRequest, e.post(clone(aapl, "instrumentId", btc)).Status)
+	t.Run("instrumentId must match the asset type; unsupported types reject it", func(t *testing.T) {
+		// a coin is not a stock
+		res := e.post(clone(aapl, "instrumentId", btc))
+		require.Equal(t, http.StatusUnprocessableEntity, res.Status, string(res.Body))
+		assert.Equal(t, "INSTRUMENT_NOT_FOUND", errCode(t, res))
 		stock := e.must(aapl)
-		assert.Equal(t, http.StatusBadRequest, e.patch(stock.ID, map[string]any{"instrumentId": btc}).Status)
+		res = e.patch(stock.ID, map[string]any{"instrumentId": btc})
+		require.Equal(t, http.StatusUnprocessableEntity, res.Status)
+		assert.Equal(t, "INSTRUMENT_NOT_FOUND", errCode(t, res))
+
+		// types without automatic pricing cannot carry an instrument at all
+		assert.Equal(t, http.StatusBadRequest, e.post(clone(bbca, "instrumentId", btc)).Status, "unknown field for ID_STOCK")
+		idStock := e.must(bbca)
+		assert.Equal(t, http.StatusBadRequest, e.patch(idStock.ID, map[string]any{"instrumentId": btc}).Status)
 	})
 
 	t.Run("a coin that disappears from AUTO use no longer refreshes", func(t *testing.T) {
@@ -493,8 +503,10 @@ func TestRefreshPriceEndpoint(t *testing.T) {
 		require.Equal(t, http.StatusUnprocessableEntity, res.Status)
 		assert.Equal(t, "AUTO_PRICE_NOT_SUPPORTED", errCode(t, res))
 
-		us := e.must(clone(aapl, "priceMode", "AUTO")) // auto-priced type, but not linked until P12
-		res = refresh(us.ID)
+		us := e.must(clone(aapl, "priceMode", "AUTO"))
+		_, err := s.Tx.Exec(context.Background(), `UPDATE investments SET instrument_id = NULL WHERE id = $1`, us.ID)
+		require.NoError(t, err)
+		res = refresh(us.ID) // an auto-priced type that lost its instrument link
 		require.Equal(t, http.StatusUnprocessableEntity, res.Status)
 		assert.Equal(t, "INSTRUMENT_NOT_LINKED", errCode(t, res))
 	})
@@ -553,7 +565,7 @@ func TestMarketDataDisabledWithoutKey(t *testing.T) {
 	// the coin list is still searchable and resolvable from the local table
 	u := s.register("jane@example.com")
 	assert.NotEmpty(t, s.searchCoins(u, "?q=btc"))
-	id, err := off.ResolveCrypto(ctx, nil, "BTC")
+	id, err := off.ResolveInstrument(ctx, "CRYPTO", nil, "BTC")
 	require.NoError(t, err)
 	assert.NotEqual(t, uuid.Nil, id)
 }

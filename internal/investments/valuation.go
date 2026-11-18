@@ -19,6 +19,10 @@ const StaleAfter = 30 * time.Minute
 type MarketPrice struct {
 	Price decimal.Decimal
 	AsOf  time.Time
+	// StaleAfter is how old the price may get before it is reported stale;
+	// zero means the default (StaleAfter, 30 minutes). Providers differ: crypto
+	// refreshes every few minutes, end-of-day stock prices only once a day.
+	StaleAfter time.Duration
 }
 
 // BaseValues are the valuation figures converted to the space base currency.
@@ -74,7 +78,11 @@ func Value(inv sqlc.Investment, mp *MarketPrice, cc *currency.ConversionContext,
 		v.PriceSource = SourceMarket
 		asOf := mp.AsOf.UTC()
 		v.PriceAsOf = &asOf
-		v.IsStale = now.Sub(mp.AsOf) > StaleAfter
+		limit := StaleAfter
+		if mp.StaleAfter > 0 {
+			limit = mp.StaleAfter
+		}
+		v.IsStale = now.Sub(mp.AsOf) > limit
 	}
 	v.Price = price
 

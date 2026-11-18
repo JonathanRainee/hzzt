@@ -33,9 +33,10 @@ type PriceSource interface {
 // SetMarket; without it AUTO investments use their manual price.
 type Market interface {
 	PriceSource
-	// ResolveCrypto returns the coin for a crypto investment: the explicit
-	// instrument when given, otherwise the highest-ranked coin with that symbol.
-	ResolveCrypto(ctx context.Context, explicit *uuid.UUID, symbol string) (uuid.UUID, error)
+	// ResolveInstrument returns the instrument that prices an investment of the
+	// asset type: the explicit one (picked from search) when given, otherwise the
+	// symbol resolved to the highest-ranked coin / exact ticker.
+	ResolveInstrument(ctx context.Context, assetType string, explicit *uuid.UUID, symbol string) (uuid.UUID, error)
 	// EnsurePrice fetches the first price of a freshly linked instrument (best effort).
 	EnsurePrice(ctx context.Context, instrumentID uuid.UUID)
 	// RefreshPrice fetches one instrument's price now.
@@ -194,20 +195,20 @@ func (s *Service) Create(ctx context.Context, spaceID, userID uuid.UUID, spec Sp
 	return s.item(ctx, inv)
 }
 
-// linkInstrument decides which market instrument a CRYPTO investment points at.
+// linkInstrument decides which market instrument an auto-priced investment points at.
 // An explicit instrument (from search) is validated and used; an AUTO investment
-// without one resolves its symbol to the highest-ranked coin. cur is the stored
+// without one resolves its symbol (highest-ranked coin / exact ticker). cur is the stored
 // row on update (nil on create); relink forces a lookup even if cur is linked.
 func (s *Service) linkInstrument(ctx context.Context, spec Spec, cur *sqlc.Investment, relink bool) (uuid.NullUUID, error) {
 	var current uuid.NullUUID
 	if cur != nil {
 		current = cur.InstrumentID
 	}
-	if spec.AssetType != TypeCrypto || s.market == nil {
+	if meta, _ := MetaFor(spec.AssetType); !meta.SupportsAutoPrice || s.market == nil {
 		return current, nil
 	}
 	if spec.InstrumentID != nil { // explicit choice
-		id, err := s.market.ResolveCrypto(ctx, spec.InstrumentID, "")
+		id, err := s.market.ResolveInstrument(ctx, spec.AssetType, spec.InstrumentID, "")
 		return uuid.NullUUID{UUID: id, Valid: err == nil}, err
 	}
 	symbolChanged := cur != nil && cur.Symbol != nil && spec.Symbol != nil && !strings.EqualFold(*cur.Symbol, *spec.Symbol)
@@ -217,7 +218,7 @@ func (s *Service) linkInstrument(ctx context.Context, spec Spec, cur *sqlc.Inves
 		if spec.Symbol != nil {
 			sym = *spec.Symbol
 		}
-		id, err := s.market.ResolveCrypto(ctx, nil, sym)
+		id, err := s.market.ResolveInstrument(ctx, spec.AssetType, nil, sym)
 		return uuid.NullUUID{UUID: id, Valid: err == nil}, err
 	}
 	return current, nil
