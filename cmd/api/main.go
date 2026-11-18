@@ -83,7 +83,9 @@ func run() error {
 	spacesSvc := spaces.NewService(pool, spaces.Options{AppURL: cfg.AppURL, Events: bus, Log: log})
 	spacesSvc.Subscribe(bus) // user.registered → default space
 	spacesHandler := spaces.NewHandler(spacesSvc, authSvc)
-	usersHandler := users.NewHandler(users.NewService(pool), authSvc)
+	usersSvc := users.NewService(pool, users.Options{})
+	usersSvc.Subscribe(bus) // user.registered → default preferences
+	usersHandler := users.NewHandler(usersSvc, authSvc, users.DefaultLimits())
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
