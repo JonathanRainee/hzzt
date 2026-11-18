@@ -421,7 +421,11 @@ func TestEditAndDelete(t *testing.T) {
 		}
 		// an expense that belongs to an investment, simulated with the column P13 will set
 		e := w.must(exp(w.a, "5", ""))
-		_, err := s.Tx.Exec(context.Background(), `UPDATE transactions SET investment_id = gen_random_uuid() WHERE id = $1`, e.ID)
+		_, err := s.Tx.Exec(context.Background(), `
+			WITH inv AS (
+				INSERT INTO investments (space_id, asset_type, name, symbol, icon, quote_currency, created_by_id)
+				VALUES ($1, 'CRYPTO', 'Bitcoin', 'BTC', '🪙', 'USD', $2) RETURNING id)
+			UPDATE transactions SET investment_id = (SELECT id FROM inv) WHERE id = $3`, w.sid, w.u.User.ID, e.ID)
 		require.NoError(t, err)
 		res := patch(e.ID, map[string]any{"note": "x"})
 		require.Equal(t, http.StatusUnprocessableEntity, res.Status)
