@@ -30,9 +30,11 @@ type Config struct {
 	ResendAPIKey string
 	EmailFrom    string
 
-	CMCAPIKey     string
-	MassiveAPIKey string
-	MassiveMode   string
+	CMCAPIKey string
+	// CMCRefreshMinutes is how often AUTO crypto prices are refreshed.
+	CMCRefreshMinutes int
+	MassiveAPIKey     string
+	MassiveMode       string
 
 	FXProvider         string
 	FreeCurrencyAPIKey string
@@ -144,6 +146,17 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 	}
 	if len(c.CORSOrigins) == 0 {
 		fail("CORS_ORIGINS is required (comma-separated list)")
+	}
+
+	// CoinMarketCap refresh interval
+	c.CMCRefreshMinutes = 10
+	if v := str("CMC_REFRESH_MINUTES", ""); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 1440 {
+			fail("CMC_REFRESH_MINUTES must be an integer between 1 and 1440, got %q", v)
+		} else {
+			c.CMCRefreshMinutes = n
+		}
 	}
 
 	// Enums

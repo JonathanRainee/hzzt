@@ -280,7 +280,7 @@ Full field lists are defined in each phase. This is the map.
 | P8 | Income/expense transactions & querying | P6, P7 | M2 | Done |
 | P9 | Wallet-to-wallet transfers | P8 | M2 | Done |
 | P10 | Investments core (manual pricing) | P5 | M3 Investments | Done |
-| P11 | Crypto auto pricing (CoinMarketCap) | P10 | M3 | Backlog |
+| P11 | Crypto auto pricing (CoinMarketCap) | P10 | M3 | Done |
 | P12 | US stock / ETF auto pricing (Massive) | P11 | M3 | Backlog |
 | P13 | Investment buy/sell through wallets | P9, P10 | M3 | Backlog |
 | P14 | Shared investments | P10, P13 | M3 | Backlog |
@@ -1082,6 +1082,8 @@ DELIVERABLES (report back)
 | TRANSFER_SAME_WALLET, TRANSFER_AMOUNT_REQUIRED, NOT_SUPPORTED_YET | 422 | P9 |
 | AUTO_PRICE_NOT_SUPPORTED | 422 | P10 |
 | UPSTREAM_PROVIDER_ERROR | 502 | P11, P12 |
+| INSTRUMENT_NOT_FOUND | 422 | P11 |
+| INSTRUMENT_NOT_LINKED, PRICE_MODE_NOT_AUTO | 422 | P11 |
 | INSUFFICIENT_QUANTITY, POSITION_CHANGED_SINCE | 422/409 | P13 |
 | SHARE_TOTAL_INVALID, PARTICIPANT_LIMIT, OWNER_ONLY | 422/403 | P14 |
 | SETTLEMENT_EXCEEDS_BALANCE | 422 | P15 |

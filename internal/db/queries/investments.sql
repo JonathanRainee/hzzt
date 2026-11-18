@@ -2,11 +2,11 @@
 INSERT INTO investments (
     space_id, asset_type, price_mode, name, symbol, icon, quote_currency, quantity, avg_buy_price,
     manual_price, fees, manual_current_value, purchase_date, estimated_annual_change_pct,
-    manual_fx_rate, details, created_by_id
+    manual_fx_rate, details, created_by_id, instrument_id
 ) VALUES (
     $1, $2, $3, $4, sqlc.narg('symbol'), $5, $6, $7, $8,
     $9, $10, sqlc.narg('manual_current_value'), sqlc.narg('purchase_date'), $11,
-    sqlc.narg('manual_fx_rate'), $12, $13
+    sqlc.narg('manual_fx_rate'), $12, $13, sqlc.narg('instrument_id')
 )
 RETURNING *;
 

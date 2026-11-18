@@ -61,6 +61,16 @@ type Investment struct {
 	DeletedAt                *time.Time          `json:"deleted_at"`
 }
 
+type JobRun struct {
+	ID             uuid.UUID `json:"id"`
+	Name           string    `json:"name"`
+	StartedAt      time.Time `json:"started_at"`
+	FinishedAt     time.Time `json:"finished_at"`
+	Status         string    `json:"status"`
+	ItemsProcessed int32     `json:"items_processed"`
+	Error          *string   `json:"error"`
+}
+
 type ManualFxRate struct {
 	SpaceID     uuid.UUID       `json:"space_id"`
 	Base        string          `json:"base"`
@@ -68,6 +78,28 @@ type ManualFxRate struct {
 	Rate        decimal.Decimal `json:"rate"`
 	UpdatedByID uuid.UUID       `json:"updated_by_id"`
 	UpdatedAt   time.Time       `json:"updated_at"`
+}
+
+type MarketInstrument struct {
+	ID         uuid.UUID `json:"id"`
+	Provider   string    `json:"provider"`
+	ExternalID string    `json:"external_id"`
+	Symbol     string    `json:"symbol"`
+	Name       string    `json:"name"`
+	Kind       string    `json:"kind"`
+	Currency   string    `json:"currency"`
+	Rank       *int32    `json:"rank"`
+	Active     bool      `json:"active"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+type MarketPrice struct {
+	InstrumentID uuid.UUID           `json:"instrument_id"`
+	Price        decimal.Decimal     `json:"price"`
+	Currency     string              `json:"currency"`
+	Change24hPct decimal.NullDecimal `json:"change_24h_pct"`
+	AsOf         time.Time           `json:"as_of"`
+	FetchedAt    time.Time           `json:"fetched_at"`
 }
 
 type PasswordResetToken struct {

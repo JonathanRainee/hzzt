@@ -13,6 +13,7 @@ import (
 	"github.com/JonathanRainee/hzzt/internal/currency"
 	"github.com/JonathanRainee/hzzt/internal/db"
 	"github.com/JonathanRainee/hzzt/internal/db/sqlc"
+	"github.com/JonathanRainee/hzzt/internal/platform/apperror"
 )
 
 // DB is what the service needs; *pgxpool.Pool and pgx.Tx both satisfy it.
@@ -27,12 +28,26 @@ type PriceSource interface {
 	MarketPrices(ctx context.Context, instrumentIDs []uuid.UUID) (map[uuid.UUID]MarketPrice, error)
 }
 
+// Market is the market-data capability: latest prices, linking crypto
+// investments to coins, and on-demand price refresh. It is installed by
+// SetMarket; without it AUTO investments use their manual price.
+type Market interface {
+	PriceSource
+	// ResolveCrypto returns the coin for a crypto investment: the explicit
+	// instrument when given, otherwise the highest-ranked coin with that symbol.
+	ResolveCrypto(ctx context.Context, explicit *uuid.UUID, symbol string) (uuid.UUID, error)
+	// EnsurePrice fetches the first price of a freshly linked instrument (best effort).
+	EnsurePrice(ctx context.Context, instrumentID uuid.UUID)
+	// RefreshPrice fetches one instrument's price now.
+	RefreshPrice(ctx context.Context, instrumentID uuid.UUID) error
+}
+
 // Service holds investment logic.
 type Service struct {
 	db       DB
 	q        *sqlc.Queries
 	currency *currency.Service
-	prices   PriceSource
+	market   Market
 	now      func() time.Time
 }
 
@@ -44,8 +59,8 @@ func NewService(database DB, cur *currency.Service, now func() time.Time) *Servi
 	return &Service{db: database, q: sqlc.New(database), currency: cur, now: now}
 }
 
-// SetPriceSource installs the market price source.
-func (s *Service) SetPriceSource(p PriceSource) { s.prices = p }
+// SetMarket installs market data (prices and instrument linking).
+func (s *Service) SetMarket(m Market) { s.market = m }
 
 // Item is an investment with its valuation.
 type Item struct {
@@ -61,7 +76,7 @@ type ListResult struct {
 }
 
 func (s *Service) marketPrices(ctx context.Context, invs []sqlc.Investment) (map[uuid.UUID]MarketPrice, error) {
-	if s.prices == nil {
+	if s.market == nil {
 		return nil, nil
 	}
 	var ids []uuid.UUID
@@ -73,7 +88,7 @@ func (s *Service) marketPrices(ctx context.Context, invs []sqlc.Investment) (map
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	return s.prices.MarketPrices(ctx, ids)
+	return s.market.MarketPrices(ctx, ids)
 }
 
 func (s *Service) value(inv sqlc.Investment, prices map[uuid.UUID]MarketPrice, cc *currency.ConversionContext, now time.Time) (Item, error) {
@@ -160,14 +175,80 @@ func (s *Service) Create(ctx context.Context, spaceID, userID uuid.UUID, spec Sp
 	if err != nil {
 		return Item{}, err
 	}
+	instrument, err := s.linkInstrument(ctx, spec, nil, spec.InstrumentID != nil)
+	if err != nil {
+		return Item{}, err
+	}
 	inv, err := s.q.CreateInvestment(ctx, sqlc.CreateInvestmentParams{
 		SpaceID: spaceID, AssetType: spec.AssetType, PriceMode: spec.PriceMode, Name: spec.Name, Symbol: spec.Symbol,
 		Icon: spec.Icon, QuoteCurrency: spec.QuoteCurrency, Quantity: spec.Quantity, AvgBuyPrice: spec.AvgBuyPrice,
 		ManualPrice: spec.ManualPrice, Fees: spec.Fees, ManualCurrentValue: toNullDecimal(spec.ManualCurrentValue),
 		PurchaseDate: spec.PurchaseDate, EstimatedAnnualChangePct: spec.EstimatedAnnualChangePct,
 		ManualFxRate: toNullDecimal(spec.ManualFxRate), Details: details, CreatedByID: userID,
+		InstrumentID: instrument,
 	})
 	if err != nil {
+		return Item{}, err
+	}
+	s.firstPrice(ctx, inv)
+	return s.item(ctx, inv)
+}
+
+// linkInstrument decides which market instrument a CRYPTO investment points at.
+// An explicit instrument (from search) is validated and used; an AUTO investment
+// without one resolves its symbol to the highest-ranked coin. cur is the stored
+// row on update (nil on create); relink forces a lookup even if cur is linked.
+func (s *Service) linkInstrument(ctx context.Context, spec Spec, cur *sqlc.Investment, relink bool) (uuid.NullUUID, error) {
+	var current uuid.NullUUID
+	if cur != nil {
+		current = cur.InstrumentID
+	}
+	if spec.AssetType != TypeCrypto || s.market == nil {
+		return current, nil
+	}
+	if spec.InstrumentID != nil { // explicit choice
+		id, err := s.market.ResolveCrypto(ctx, spec.InstrumentID, "")
+		return uuid.NullUUID{UUID: id, Valid: err == nil}, err
+	}
+	symbolChanged := cur != nil && cur.Symbol != nil && spec.Symbol != nil && !strings.EqualFold(*cur.Symbol, *spec.Symbol)
+	switchedToAuto := cur != nil && cur.PriceMode != PriceModeAuto && spec.PriceMode == PriceModeAuto
+	if spec.PriceMode == PriceModeAuto && (!current.Valid || relink || symbolChanged || switchedToAuto) {
+		sym := ""
+		if spec.Symbol != nil {
+			sym = *spec.Symbol
+		}
+		id, err := s.market.ResolveCrypto(ctx, nil, sym)
+		return uuid.NullUUID{UUID: id, Valid: err == nil}, err
+	}
+	return current, nil
+}
+
+// firstPrice gives a newly linked AUTO instrument its first price right away (best effort).
+func (s *Service) firstPrice(ctx context.Context, inv sqlc.Investment) {
+	if s.market != nil && inv.PriceMode == PriceModeAuto && inv.InstrumentID.Valid {
+		s.market.EnsurePrice(ctx, inv.InstrumentID.UUID)
+	}
+}
+
+// RefreshPrice refreshes the market price of an AUTO investment on demand.
+func (s *Service) RefreshPrice(ctx context.Context, spaceID, id uuid.UUID) (Item, error) {
+	inv, err := s.q.GetInvestment(ctx, sqlc.GetInvestmentParams{ID: id, SpaceID: spaceID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Item{}, errInvestmentNF
+	}
+	if err != nil {
+		return Item{}, err
+	}
+	meta, _ := MetaFor(inv.AssetType)
+	switch {
+	case !meta.SupportsAutoPrice:
+		return Item{}, errAutoNotSupported
+	case inv.PriceMode != PriceModeAuto:
+		return Item{}, apperror.Unprocessable(CodePriceModeNotAuto, "Switch the investment to automatic pricing first")
+	case !inv.InstrumentID.Valid || s.market == nil:
+		return Item{}, apperror.Unprocessable(CodeInstrumentNotLinked, "This investment is not linked to a market instrument yet")
+	}
+	if err := s.market.RefreshPrice(ctx, inv.InstrumentID.UUID); err != nil {
 		return Item{}, err
 	}
 	return s.item(ctx, inv)
@@ -189,6 +270,10 @@ func (s *Service) Update(ctx context.Context, space sqlc.Space, id uuid.UUID, p 
 		if err != nil {
 			return err
 		}
+		instrument, err := s.linkInstrument(ctx, spec, &cur, p.InstrumentID != nil)
+		if err != nil {
+			return err
+		}
 		details, err := DetailsJSON(spec.Details)
 		if err != nil {
 			return err
@@ -200,11 +285,21 @@ func (s *Service) Update(ctx context.Context, space sqlc.Space, id uuid.UUID, p 
 			PurchaseDate: spec.PurchaseDate, EstimatedAnnualChangePct: spec.EstimatedAnnualChangePct,
 			ManualFxRate: toNullDecimal(spec.ManualFxRate), Details: details,
 		})
-		return err
+		if err != nil {
+			return err
+		}
+		if instrument != cur.InstrumentID {
+			if err := q.SetInvestmentInstrument(ctx, sqlc.SetInvestmentInstrumentParams{ID: id, SpaceID: space.ID, InstrumentID: instrument}); err != nil {
+				return err
+			}
+			out.InstrumentID = instrument
+		}
+		return nil
 	})
 	if err != nil {
 		return Item{}, err
 	}
+	s.firstPrice(ctx, out)
 	return s.item(ctx, out)
 }
 

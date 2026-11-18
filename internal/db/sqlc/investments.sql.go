@@ -17,11 +17,11 @@ const createInvestment = `-- name: CreateInvestment :one
 INSERT INTO investments (
     space_id, asset_type, price_mode, name, symbol, icon, quote_currency, quantity, avg_buy_price,
     manual_price, fees, manual_current_value, purchase_date, estimated_annual_change_pct,
-    manual_fx_rate, details, created_by_id
+    manual_fx_rate, details, created_by_id, instrument_id
 ) VALUES (
     $1, $2, $3, $4, $14, $5, $6, $7, $8,
     $9, $10, $15, $16, $11,
-    $17, $12, $13
+    $17, $12, $13, $18
 )
 RETURNING id, space_id, asset_type, price_mode, name, symbol, icon, quote_currency, quantity, avg_buy_price, manual_price, fees, manual_current_value, purchase_date, estimated_annual_change_pct, manual_fx_rate, details, instrument_id, is_shared, created_by_id, created_at, updated_at, deleted_at
 `
@@ -44,6 +44,7 @@ type CreateInvestmentParams struct {
 	ManualCurrentValue       decimal.NullDecimal `json:"manual_current_value"`
 	PurchaseDate             *time.Time          `json:"purchase_date"`
 	ManualFxRate             decimal.NullDecimal `json:"manual_fx_rate"`
+	InstrumentID             uuid.NullUUID       `json:"instrument_id"`
 }
 
 func (q *Queries) CreateInvestment(ctx context.Context, arg CreateInvestmentParams) (Investment, error) {
@@ -65,6 +66,7 @@ func (q *Queries) CreateInvestment(ctx context.Context, arg CreateInvestmentPara
 		arg.ManualCurrentValue,
 		arg.PurchaseDate,
 		arg.ManualFxRate,
+		arg.InstrumentID,
 	)
 	var i Investment
 	err := row.Scan(

@@ -16,16 +16,27 @@ import (
 	"github.com/JonathanRainee/hzzt/internal/spaces"
 )
 
+// Limits are the per-endpoint rate limiters.
+type Limits struct {
+	RefreshPrice *httpx.RateLimiter // per investment
+}
+
+// DefaultLimits: on-demand price refresh 1/min per investment.
+func DefaultLimits() Limits {
+	return Limits{RefreshPrice: httpx.NewRateLimiter(1, time.Minute)}
+}
+
 // Handler exposes the investment endpoints.
 type Handler struct {
 	svc    *Service
 	auth   *auth.Service
 	spaces *spaces.Service
+	limits Limits
 }
 
 // NewHandler creates the HTTP layer.
-func NewHandler(svc *Service, authSvc *auth.Service, spacesSvc *spaces.Service) *Handler {
-	return &Handler{svc: svc, auth: authSvc, spaces: spacesSvc}
+func NewHandler(svc *Service, authSvc *auth.Service, spacesSvc *spaces.Service, limits Limits) *Handler {
+	return &Handler{svc: svc, auth: authSvc, spaces: spacesSvc, limits: limits}
 }
 
 // Mount registers the routes on r (the /api/v1 router). Any space member may
@@ -42,6 +53,7 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Get(p+"/{id}", h.get)
 		r.Patch(p+"/{id}", h.update)
 		r.Delete(p+"/{id}", h.delete)
+		r.Post(p+"/{id}/refresh-price", h.refreshPrice)
 	})
 }
 
@@ -177,7 +189,7 @@ type CreateRequestDoc struct {
 // create godoc
 //
 //	@Summary		Create an investment
-//	@Description	The body is validated by `assetType` (see GET /investment-types). ID_STOCK takes `details.lots` and derives quantity = lots × 100. CRYPTO checks `details.stakedQuantity` <= quantity. `priceMode: AUTO` is accepted for CRYPTO, US_STOCK and GLOBAL_ETF (falling back to the manual price until market data is connected) and answers 422 AUTO_PRICE_NOT_SUPPORTED otherwise.
+//	@Description	The body is validated by `assetType` (see GET /investment-types). ID_STOCK takes `details.lots` and derives quantity = lots × 100. CRYPTO checks `details.stakedQuantity` <= quantity. `priceMode: AUTO` is accepted for CRYPTO, US_STOCK and GLOBAL_ETF and answers 422 AUTO_PRICE_NOT_SUPPORTED otherwise. An AUTO CRYPTO investment is linked to a coin: send the `instrumentId` picked from GET /market/crypto/search, or the symbol is resolved to the highest-ranked coin (422 INSTRUMENT_NOT_FOUND if none matches). Without a market price the manual price is used.
 //	@Tags			investments
 //	@Security		BearerAuth
 //	@Accept			json
@@ -291,4 +303,36 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// refreshPrice godoc
+//
+//	@Summary		Refresh the market price of an AUTO investment now
+//	@Description	Rate limited to 1 per minute per investment. On a provider failure the last known price is kept (it turns stale).
+//	@Tags			investments
+//	@Security		BearerAuth
+//	@Produce		json
+//	@Param			spaceId	path		string	true	"Space ID"
+//	@Param			id		path		string	true	"Investment ID"
+//	@Success		200		{object}	InvestmentDTO
+//	@Failure		404		{object}	httpx.ErrorEnvelope
+//	@Failure		422		{object}	httpx.ErrorEnvelope	"AUTO_PRICE_NOT_SUPPORTED / PRICE_MODE_NOT_AUTO / INSTRUMENT_NOT_LINKED"
+//	@Failure		429		{object}	httpx.ErrorEnvelope
+//	@Failure		502		{object}	httpx.ErrorEnvelope	"UPSTREAM_PROVIDER_ERROR"
+//	@Router			/spaces/{spaceId}/investments/{id}/refresh-price [post]
+func (h *Handler) refreshPrice(w http.ResponseWriter, r *http.Request) {
+	id, err := investmentID(r)
+	if err == nil {
+		// keyed by space too, so a foreign id in your own space cannot use up someone else's budget
+		err = h.limits.RefreshPrice.Check(w, spaces.SpaceIDFromContext(r.Context()).String()+"/"+id.String())
+	}
+	var it Item
+	if err == nil {
+		it, err = h.svc.RefreshPrice(r.Context(), spaces.SpaceIDFromContext(r.Context()), id)
+	}
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toDTO(it))
 }

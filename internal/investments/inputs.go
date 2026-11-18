@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 
 	"github.com/JonathanRainee/hzzt/internal/db/sqlc"
@@ -34,6 +35,9 @@ type Spec struct {
 	EstimatedAnnualChangePct decimal.Decimal
 	// Details is one of the *Details structs below.
 	Details any
+	// InstrumentID is the market instrument the client picked from search
+	// (CRYPTO only for now); nil means "resolve from the symbol when AUTO".
+	InstrumentID *uuid.UUID
 }
 
 // --- per-type details ----------------------------------------------------------
@@ -165,10 +169,11 @@ type base struct {
 
 // Create inputs, one per asset type. The request is decoded in two passes keyed on assetType.
 type cryptoInput struct {
-	AssetType string           `json:"assetType"`
-	Name      string           `json:"name" validate:"required,min=1,max=120"`
-	Quantity  *decimal.Decimal `json:"quantity" validate:"required" swaggertype:"string"`
-	Details   cryptoDetails    `json:"details"`
+	AssetType    string           `json:"assetType"`
+	Name         string           `json:"name" validate:"required,min=1,max=120"`
+	Quantity     *decimal.Decimal `json:"quantity" validate:"required" swaggertype:"string"`
+	InstrumentID *uuid.UUID       `json:"instrumentId" swaggertype:"string"`
+	Details      cryptoDetails    `json:"details"`
 	base
 }
 
@@ -209,7 +214,9 @@ type CreateInput interface {
 }
 
 func (in *cryptoInput) spec(bc string) (Spec, error) {
-	return buildSpec(TypeCrypto, in.Name, &in.base, in.Quantity, in.Details, bc)
+	s, err := buildSpec(TypeCrypto, in.Name, &in.base, in.Quantity, in.Details, bc)
+	s.InstrumentID = in.InstrumentID
+	return s, err
 }
 func (in *idStockInput) spec(bc string) (Spec, error) {
 	return buildSpec(TypeIDStock, in.Name, &in.base, nil, in.Details, bc)
@@ -477,7 +484,9 @@ type PatchInput struct {
 	PurchaseDate             nullStr          `json:"purchaseDate" swaggertype:"string"`
 	EstimatedAnnualChangePct *decimal.Decimal `json:"estimatedAnnualChangePct" swaggertype:"string"`
 	ManualFxRate             nullDec          `json:"manualFxRate" swaggertype:"string"`
-	Details                  json.RawMessage  `json:"details" swaggertype:"object"`
+	// InstrumentID relinks a CRYPTO investment to a coin picked from search.
+	InstrumentID *uuid.UUID      `json:"instrumentId" swaggertype:"string"`
+	Details      json.RawMessage `json:"details" swaggertype:"object"`
 }
 
 // specFromRow rebuilds a Spec from a stored investment.
@@ -517,6 +526,12 @@ func (p PatchInput) apply(inv sqlc.Investment, baseCurrency string) (Spec, error
 	}
 	if p.PriceMode != nil {
 		s.PriceMode = *p.PriceMode
+	}
+	if p.InstrumentID != nil {
+		if s.AssetType != TypeCrypto {
+			f["instrumentId"] = "is only supported for CRYPTO investments"
+		}
+		s.InstrumentID = p.InstrumentID
 	}
 	if p.Name != nil {
 		s.Name = cleanName(f, *p.Name)

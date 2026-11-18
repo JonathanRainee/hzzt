@@ -29,6 +29,7 @@ import (
 	"github.com/JonathanRainee/hzzt/internal/db"
 	"github.com/JonathanRainee/hzzt/internal/db/sqlc"
 	"github.com/JonathanRainee/hzzt/internal/investments"
+	"github.com/JonathanRainee/hzzt/internal/marketdata"
 	"github.com/JonathanRainee/hzzt/internal/platform/email"
 	"github.com/JonathanRainee/hzzt/internal/platform/events"
 	"github.com/JonathanRainee/hzzt/internal/platform/httpx"
@@ -81,6 +82,8 @@ type TestServer struct {
 	Currency    *currency.Service
 	Categories  *categories.Service
 	Investments *investments.Service
+	Market      *marketdata.Service
+	CMC         *FakeCMC
 	t           *testing.T
 }
 
@@ -104,16 +107,26 @@ func NewTestServer(t *testing.T) *TestServer {
 // NewTestServerWithLimits is NewTestServer with explicit auth rate limits.
 func NewTestServerWithLimits(t *testing.T, limits auth.Limits) *TestServer {
 	t.Helper()
-	return newTestServer(t, limits, users.Limits{VerifyPIN: httpx.NewRateLimiter(1000, time.Minute)})
+	return newTestServer(t, limits, users.Limits{VerifyPIN: httpx.NewRateLimiter(1000, time.Minute)}, generousInvLimits())
+}
+
+func generousInvLimits() investments.Limits {
+	return investments.Limits{RefreshPrice: httpx.NewRateLimiter(1000, time.Minute)}
+}
+
+// NewTestServerWithInvestmentLimits is NewTestServer with explicit investment rate limits.
+func NewTestServerWithInvestmentLimits(t *testing.T, limits investments.Limits) *TestServer {
+	t.Helper()
+	return newTestServer(t, generousLimits(), users.Limits{VerifyPIN: httpx.NewRateLimiter(1000, time.Minute)}, limits)
 }
 
 // NewTestServerWithUserLimits is NewTestServer with explicit /me rate limits.
 func NewTestServerWithUserLimits(t *testing.T, limits users.Limits) *TestServer {
 	t.Helper()
-	return newTestServer(t, generousLimits(), limits)
+	return newTestServer(t, generousLimits(), limits, generousInvLimits())
 }
 
-func newTestServer(t *testing.T, limits auth.Limits, userLimits users.Limits) *TestServer {
+func newTestServer(t *testing.T, limits auth.Limits, userLimits users.Limits, invLimits investments.Limits) *TestServer {
 	t.Helper()
 	ctx := context.Background()
 
@@ -165,12 +178,19 @@ func newTestServer(t *testing.T, limits auth.Limits, userLimits users.Limits) *T
 	categoriesSvc.SetUsageChecker(transactionsSvc.CategoryInUse)
 	transactionsHandler := transactions.NewHandler(transactionsSvc, svc, spacesSvc)
 	transfersHandler := transfers.NewHandler(transfers.NewService(tx, transactionsSvc, clock.Now), svc, spacesSvc)
+	cmc := &FakeCMC{now: clock.Now, Coins: defaultCoins(), Quotes: map[int64]string{1: "63000", 1027: "1800", 825: "1", 5426: "150"}}
+	marketSvc := marketdata.NewService(tx, marketdata.Options{Crypto: cmc, Log: log, Now: clock.Now})
+	_, err = marketSvc.SyncCoinMap(ctx)
+	require.NoError(t, err)
+	cmc.MapCalls, cmc.PriceCalls = 0, 0
 	investmentsSvc := investments.NewService(tx, currencySvc, clock.Now)
-	investmentsHandler := investments.NewHandler(investmentsSvc, svc, spacesSvc)
-	srv := httptest.NewServer(server.NewRouter(cfg, log, sqlc.New(tx), handler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount, walletsHandler.Mount, transactionsHandler.Mount, transfersHandler.Mount, investmentsHandler.Mount))
+	investmentsSvc.SetMarket(marketSvc)
+	investmentsHandler := investments.NewHandler(investmentsSvc, svc, spacesSvc, invLimits)
+	marketHandler := marketdata.NewHandler(marketSvc, svc)
+	srv := httptest.NewServer(server.NewRouter(cfg, log, sqlc.New(tx), handler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount, walletsHandler.Mount, transactionsHandler.Mount, transfersHandler.Mount, investmentsHandler.Mount, marketHandler.Mount))
 	t.Cleanup(srv.Close)
 
-	ts := &TestServer{Server: srv, Tx: tx, Email: mail, Events: bus, Auth: svc, Clock: clock, FX: fx, Currency: currencySvc, Categories: categoriesSvc, Investments: investmentsSvc, t: t}
+	ts := &TestServer{Server: srv, Tx: tx, Email: mail, Events: bus, Auth: svc, Clock: clock, FX: fx, Currency: currencySvc, Categories: categoriesSvc, Investments: investmentsSvc, Market: marketSvc, CMC: cmc, t: t}
 	// Registered after the rollback cleanup, so it runs first: the ledger
 	// invariant must hold at the end of every test.
 	t.Cleanup(func() {
