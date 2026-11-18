@@ -67,6 +67,21 @@ func TestDeltasForInvestmentTrades(t *testing.T) {
 	assert.Error(t, err, "needs a wallet")
 }
 
+func TestDeltasForSettlements(t *testing.T) {
+	a := uuid.New()
+	got, err := Deltas(sqlc.Transaction{Type: TypeTransfer, Amount: d("200"), WalletID: nid(a), SettlementDirection: sp("IN")})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.True(t, d("200").Equal(got[0].Amount), "money received back credits the wallet")
+
+	got, err = Deltas(sqlc.Transaction{Type: TypeTransfer, Amount: d("200"), WalletID: nid(a), SettlementDirection: sp("OUT")})
+	require.NoError(t, err)
+	assert.True(t, d("-200").Equal(got[0].Amount), "a debt payment debits it")
+
+	_, err = Deltas(sqlc.Transaction{Type: TypeTransfer, Amount: d("1"), WalletID: nid(a), SettlementDirection: sp("SIDEWAYS")})
+	assert.Error(t, err)
+}
+
 func TestDeltasRejectsMalformedTransactions(t *testing.T) {
 	a := uuid.New()
 	for name, txn := range map[string]sqlc.Transaction{
