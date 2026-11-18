@@ -46,5 +46,9 @@ RETURNING *;
 -- Realized profit/loss of every SELL, summed per investment (in each investment's quote currency).
 SELECT t.investment_id, COALESCE(sum(t.realized_pl), 0)::numeric(28,8) AS realized_pl, count(*)::int AS sells
 FROM transactions t
-WHERE t.space_id = $1 AND t.investment_action = 'SELL' AND t.investment_id IS NOT NULL
+WHERE t.investment_id = ANY($1::uuid[]) AND t.investment_action = 'SELL'
 GROUP BY t.investment_id;
+
+-- name: GetInvestmentByID :one
+-- Any live investment, regardless of space (for participant flows).
+SELECT * FROM investments WHERE id = $1 AND deleted_at IS NULL;

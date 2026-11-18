@@ -137,6 +137,42 @@ func (q *Queries) GetInvestment(ctx context.Context, arg GetInvestmentParams) (I
 	return i, err
 }
 
+const getInvestmentByID = `-- name: GetInvestmentByID :one
+SELECT id, space_id, asset_type, price_mode, name, symbol, icon, quote_currency, quantity, avg_buy_price, manual_price, fees, manual_current_value, purchase_date, estimated_annual_change_pct, manual_fx_rate, details, instrument_id, is_shared, created_by_id, created_at, updated_at, deleted_at FROM investments WHERE id = $1 AND deleted_at IS NULL
+`
+
+// Any live investment, regardless of space (for participant flows).
+func (q *Queries) GetInvestmentByID(ctx context.Context, id uuid.UUID) (Investment, error) {
+	row := q.db.QueryRow(ctx, getInvestmentByID, id)
+	var i Investment
+	err := row.Scan(
+		&i.ID,
+		&i.SpaceID,
+		&i.AssetType,
+		&i.PriceMode,
+		&i.Name,
+		&i.Symbol,
+		&i.Icon,
+		&i.QuoteCurrency,
+		&i.Quantity,
+		&i.AvgBuyPrice,
+		&i.ManualPrice,
+		&i.Fees,
+		&i.ManualCurrentValue,
+		&i.PurchaseDate,
+		&i.EstimatedAnnualChangePct,
+		&i.ManualFxRate,
+		&i.Details,
+		&i.InstrumentID,
+		&i.IsShared,
+		&i.CreatedByID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
 const getInvestmentForUpdate = `-- name: GetInvestmentForUpdate :one
 SELECT id, space_id, asset_type, price_mode, name, symbol, icon, quote_currency, quantity, avg_buy_price, manual_price, fees, manual_current_value, purchase_date, estimated_annual_change_pct, manual_fx_rate, details, instrument_id, is_shared, created_by_id, created_at, updated_at, deleted_at FROM investments WHERE id = $1 AND space_id = $2 AND deleted_at IS NULL FOR UPDATE
 `
@@ -236,7 +272,7 @@ func (q *Queries) ListInvestments(ctx context.Context, arg ListInvestmentsParams
 const realizedPLByInvestment = `-- name: RealizedPLByInvestment :many
 SELECT t.investment_id, COALESCE(sum(t.realized_pl), 0)::numeric(28,8) AS realized_pl, count(*)::int AS sells
 FROM transactions t
-WHERE t.space_id = $1 AND t.investment_action = 'SELL' AND t.investment_id IS NOT NULL
+WHERE t.investment_id = ANY($1::uuid[]) AND t.investment_action = 'SELL'
 GROUP BY t.investment_id
 `
 
@@ -247,8 +283,8 @@ type RealizedPLByInvestmentRow struct {
 }
 
 // Realized profit/loss of every SELL, summed per investment (in each investment's quote currency).
-func (q *Queries) RealizedPLByInvestment(ctx context.Context, spaceID uuid.UUID) ([]RealizedPLByInvestmentRow, error) {
-	rows, err := q.db.Query(ctx, realizedPLByInvestment, spaceID)
+func (q *Queries) RealizedPLByInvestment(ctx context.Context, dollar_1 []uuid.UUID) ([]RealizedPLByInvestmentRow, error) {
+	rows, err := q.db.Query(ctx, realizedPLByInvestment, dollar_1)
 	if err != nil {
 		return nil, err
 	}
