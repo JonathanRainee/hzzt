@@ -1,5 +1,104 @@
 basePath: /api/v1
 definitions:
+  auth.AuthResponse:
+    properties:
+      accessToken:
+        type: string
+      expiresIn:
+        description: seconds
+        example: 900
+        type: integer
+      user:
+        $ref: '#/definitions/auth.UserDTO'
+    type: object
+  auth.MessageResponse:
+    properties:
+      message:
+        type: string
+    type: object
+  auth.UserDTO:
+    properties:
+      createdAt:
+        type: string
+      email:
+        type: string
+      id:
+        type: string
+      lastActiveSpaceId:
+        type: string
+      name:
+        type: string
+      timezone:
+        type: string
+    type: object
+  auth.changePasswordRequest:
+    properties:
+      currentPassword:
+        maxLength: 128
+        type: string
+      newPassword:
+        maxLength: 128
+        type: string
+    required:
+    - currentPassword
+    - newPassword
+    type: object
+  auth.forgotPasswordRequest:
+    properties:
+      email:
+        maxLength: 254
+        type: string
+    required:
+    - email
+    type: object
+  auth.loginRequest:
+    properties:
+      email:
+        maxLength: 254
+        type: string
+      password:
+        maxLength: 128
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  auth.registerRequest:
+    properties:
+      email:
+        example: jane@example.com
+        maxLength: 254
+        type: string
+      name:
+        example: Jane
+        maxLength: 60
+        minLength: 1
+        type: string
+      password:
+        example: correct horse battery
+        maxLength: 128
+        type: string
+      timezone:
+        example: Asia/Jakarta
+        maxLength: 64
+        type: string
+    required:
+    - email
+    - name
+    - password
+    type: object
+  auth.resetPasswordRequest:
+    properties:
+      newPassword:
+        maxLength: 128
+        type: string
+      token:
+        maxLength: 256
+        type: string
+    required:
+    - newPassword
+    - token
+    type: object
   httpx.ErrorBody:
     properties:
       code:
@@ -29,6 +128,212 @@ info:
   title: Hzzt API
   version: "1.0"
 paths:
+  /auth/change-password:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Passwords
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/auth.changePasswordRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "422":
+          description: INVALID_CURRENT_PASSWORD
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Change password (revokes all other sessions)
+      tags:
+      - auth
+  /auth/forgot-password:
+    post:
+      consumes:
+      - application/json
+      description: Always responds 200, whether or not the email is registered.
+      parameters:
+      - description: Email
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/auth.forgotPasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/auth.MessageResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      summary: Request a password reset email
+      tags:
+      - auth
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Credentials
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/auth.loginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/auth.AuthResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "401":
+          description: INVALID_CREDENTIALS
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      summary: Log in with email and password
+      tags:
+      - auth
+  /auth/logout:
+    post:
+      responses:
+        "204":
+          description: No Content
+      summary: Revoke the current refresh token family and clear the cookie
+      tags:
+      - auth
+  /auth/logout-all:
+    post:
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Revoke all of the user's refresh tokens
+      tags:
+      - auth
+  /auth/me:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/auth.UserDTO'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Current user
+      tags:
+      - auth
+  /auth/refresh:
+    post:
+      description: Reads the httpOnly `rt` cookie. Presenting an already-rotated token
+        revokes the whole token family (REFRESH_TOKEN_REUSED).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/auth.AuthResponse'
+        "401":
+          description: REFRESH_TOKEN_INVALID / REFRESH_TOKEN_REUSED
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      summary: Rotate the refresh token and get a new access token
+      tags:
+      - auth
+  /auth/register:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Account details
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/auth.registerRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/auth.AuthResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "409":
+          description: EMAIL_ALREADY_REGISTERED
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      summary: Register an account
+      tags:
+      - auth
+  /auth/reset-password:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Token and new password
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/auth.resetPasswordRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "422":
+          description: RESET_TOKEN_INVALID
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      summary: Reset password with an emailed token (revokes all sessions)
+      tags:
+      - auth
   /health:
     get:
       produces:

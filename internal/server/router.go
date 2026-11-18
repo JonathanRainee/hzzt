@@ -20,9 +20,11 @@ import (
 // NewRouter builds the router with the global middleware chain:
 // request ID → recoverer → request logger → CORS → body limit.
 //
-// Still to be added by later tasks/phases: rate limiter, AuthMiddleware (P2) and
-// SpaceMemberMiddleware (P3, applied per route group, not globally).
-func NewRouter(cfg *config.Config, log zerolog.Logger, db Pinger) *chi.Mux {
+// Rate limiting is applied per endpoint (httpx.RateLimiter), AuthMiddleware per route
+// group (auth.Service.Middleware). Still to come: SpaceMemberMiddleware (P3, applied per route group, not globally).
+//
+// mounts register domain routes under /api/v1 (e.g. auth.Handler.Mount).
+func NewRouter(cfg *config.Config, log zerolog.Logger, db Pinger, mounts ...func(chi.Router)) *chi.Mux {
 	r := chi.NewRouter()
 
 	// RequestID runs first so every envelope (including recovered panics)
@@ -43,6 +45,9 @@ func NewRouter(cfg *config.Config, log zerolog.Logger, db Pinger) *chi.Mux {
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/health", liveness)
 		r.Get("/health/ready", readiness(db))
+		for _, mount := range mounts {
+			mount(r)
+		}
 	})
 
 	// Swagger UI is never exposed in production.

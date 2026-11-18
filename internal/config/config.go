@@ -28,6 +28,7 @@ type Config struct {
 
 	EmailDriver  string
 	ResendAPIKey string
+	EmailFrom    string
 
 	CMCAPIKey     string
 	MassiveAPIKey string
@@ -75,6 +76,7 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 		AppURL:        required("APP_URL"),
 		EmailDriver:   str("EMAIL_DRIVER", "console"),
 		ResendAPIKey:  str("RESEND_API_KEY", ""),
+		EmailFrom:     str("EMAIL_FROM", "Hzzt <onboarding@resend.dev>"),
 		CMCAPIKey:     str("CMC_API_KEY", ""),
 		MassiveAPIKey: str("MASSIVE_API_KEY", ""),
 		MassiveMode:   strings.ToUpper(str("MASSIVE_MODE", "EOD")),
