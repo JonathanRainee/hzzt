@@ -71,7 +71,7 @@ SSO, AI receipt scanning, voice input, "Consult", "Insight", reminders, recurrin
 | ID | Decision | Status | Chosen | Blocks |
 |---|---|---|---|---|
 | D-01 | Backend stack | **Resolved** | **Go 1.23+, chi router, sqlc, pgx, goose migrations, PostgreSQL** | P1 |
-| D-02 | Hosting | Open | Railway/Render/Fly + managed Postgres (Neon/Supabase/RDS); any of these run a Go binary or a small Docker image equally well | P18 |
+| D-02 | Hosting | Open | Railway/Render/Fly + managed Postgres (Neon/Supabase/RDS); any of these run a Go binary or a small Docker image equally well | P19 |
 | D-03 | FX rate provider | Recommended | **Frankfurter** (free, ECB daily, includes IDR) | P5 |
 | D-04 | Auto-price coverage | Recommended | Massive covers US_STOCK + GLOBAL_ETF (US-listed); ID_STOCK and MUTUAL_FUND stay manual | P10, P12 |
 | D-05 | Massive plan tier | Recommended | Build both EOD and snapshot strategies behind an env flag; start with EOD (free tier) | P12 |
@@ -84,6 +84,7 @@ SSO, AI receipt scanning, voice input, "Consult", "Insight", reminders, recurrin
 | D-12 | Email provider | Recommended | Resend, behind an interface | P2 |
 | D-13 | Tracking mode semantics | Recommended | Support both `FULL_NET_WORTH` and `CASH_ONLY` | P3, P15, P17 |
 | D-14 | Allow negative wallet balances | Recommended | **Allow** (overdrafts, corrections) | P7, P9 |
+| D-15 | Investment accounts: overlap of wrapper shares and per-investment shares | Proposed (awaiting confirmation) | Investments **inside** an account take the account's shares; only ungrouped investments keep individual sharing | P18 |
 
 Items marked "Recommended" carry forward from the original plan; flag any you'd like to revisit before their phase starts.
 
@@ -206,7 +207,7 @@ docker-compose.yml
 
 ### 5.5 Multi-tenancy
 
-Every space-scoped table has `space_id`. Every sqlc query filters by it explicitly — there is no automatic scoping, so this is a code-review checklist item in every phase (and the subject of the P18 isolation sweep). Handler functions take `spaceID uuid.UUID` from context, set by `SpaceMemberMiddleware`, and pass it down to every query call. Every phase adds integration tests proving that user B gets **404** on user A's resources.
+Every space-scoped table has `space_id`. Every sqlc query filters by it explicitly — there is no automatic scoping, so this is a code-review checklist item in every phase (and the subject of the P19 isolation sweep). Handler functions take `spaceID uuid.UUID` from context, set by `SpaceMemberMiddleware`, and pass it down to every query call. Every phase adds integration tests proving that user B gets **404** on user A's resources.
 
 ### 5.6 Time
 
@@ -261,6 +262,7 @@ Full field lists are defined in each phase. This is the map.
 | ManualAsset / ManualAssetValueChange | P15 | kind FIXED_ASSET/RECEIVABLE/LIABILITY |
 | Goal / GoalAllocation | P16 | earmarks against wallets |
 | NetWorthSnapshot | P17 | space_id + date, component totals |
+| InvestmentAccount | P18 | kind SECURITIES/EXCHANGE; wrapper over investments; shareable like an investment |
 | JobRun | P11 | name, status, timings, error |
 
 ---
@@ -287,9 +289,10 @@ Full field lists are defined in each phase. This is the map.
 | P15 | Other assets & net-worth summary | P9, P14 | M4 Net worth & planning | Done |
 | P16 | Goals | P7 | M4 | Done |
 | P17 | Dashboard, analytics & net-worth history | P8, P15 | M4 | Done |
-| P18 | Hardening, docs & deployment | all | M5 Production | Backlog |
+| P18 | Investment accounts (securities & exchanges) | P10, P13, P14 | M4 | Backlog |
+| P19 | Hardening, docs & deployment | all | M5 Production | Backlog |
 
-Critical path: P0 → P1 → P2 → P3 → P5 → P7 → P8 → P9 → P13 → P14 → P15 → P17 → P18. P4, P6, P10 to P12, and P16 can run in parallel branches once their dependencies are done.
+Critical path: P0 → P1 → P2 → P3 → P5 → P7 → P8 → P9 → P13 → P14 → P15 → P17 → P18 → P19. P4, P6, P10 to P12, and P16 can run in parallel branches once their dependencies are done.
 
 ---
 
@@ -337,7 +340,7 @@ Critical path: P0 → P1 → P2 → P3 → P5 → P7 → P8 → P9 → P13 → P
 |---|---|---|---|---|
 | P1-T01 | Module + layout | `go mod init`, create the package layout from Section 4, `golangci-lint` config (`.golangci.yml`: govet, staticcheck, errcheck, unused) | Critical | S |
 | P1-T02 | Config | `internal/config`: parse env vars into a struct with manual validation (fail fast with a readable list of missing/invalid vars): `PORT, DATABASE_URL, JWT_ACCESS_SECRET, JWT_ACCESS_TTL, REFRESH_TTL_DAYS, CORS_ORIGINS, APP_URL, EMAIL_DRIVER, RESEND_API_KEY, CMC_API_KEY, MASSIVE_API_KEY, MASSIVE_MODE, FX_PROVIDER`. Provider keys are optional until their phase | Critical | S |
-| P1-T03 | DB pool + migrations | `pgxpool.New` in `main.go`; embed `db/migrations` with `go:embed` and run `goose.Up` on boot (configurable, off in prod if migrations run as a separate deploy step — decide the exact approach in P18); enable `citext` and `pgcrypto` in migration `0001` | Critical | S |
+| P1-T03 | DB pool + migrations | `pgxpool.New` in `main.go`; embed `db/migrations` with `go:embed` and run `goose.Up` on boot (configurable, off in prod if migrations run as a separate deploy step — decide the exact approach in P19); enable `citext` and `pgcrypto` in migration `0001` | Critical | S |
 | P1-T04 | sqlc wiring | `sqlc.yaml` pointing at `db/migrations` (schema) and `db/queries/*.sql`; configure `NUMERIC` → `decimal.Decimal`, `UUID` → `uuid.UUID`, `TIMESTAMPTZ` → `time.Time`; a trivial `SELECT 1` query to prove the pipeline, used by the health check | Critical | S |
 | P1-T05 | Router + middleware chain | `chi.NewRouter()` with the Section 4 middleware chain; `cors.Handler` with an allowlist from config; 100KB body-size limit middleware | Critical | M |
 | P1-T06 | Error envelope | `apperror.AppError`, `httpx.WriteError`, a panic-recovery middleware that converts panics into the 500 envelope instead of crashing the process | Critical | M |
@@ -970,22 +973,63 @@ Since the filter list and query are optional in any combination, the sqlc query 
 
 ---
 
-### P18: Hardening, docs & deployment
+### P18: Investment accounts (securities & exchanges)
+
+**Goal:** Group investments under a wrapper, a *securities* account for stocks (e.g. a brokerage) or an *exchange* account for crypto, so one wrapper can hold many instruments, show combined totals, and be shared as a whole. Sharing of individual investments (P14) stays unchanged.
+**Depends on:** P10, P13, P14 · **Size:** Medium
+**Added after P17 at the user's request; Hardening moved from P18 to P19 and every reference was updated.**
+
+**Data model:**
+- `investment_accounts`: id, space_id, name, kind (`SECURITIES` | `EXCHANGE`), is_shared, archived_at, created_at, updated_at; unique (space_id, lower(name)).
+- `investments.account_id` (nullable FK). Existing investments stay ungrouped. Kind rule: `SECURITIES` holds `ID_STOCK` / `US_STOCK`; `EXCHANGE` holds `CRYPTO`.
+- Account-level sharing reuses the P14 model, keyed by account (`investment_account_participants`, `investment_account_share_changes`), with the same rules: owner present, shares sum to 10000 bps, owner-only writes, audit rows, invitations.
+
+| Method | Path | Notes |
+|---|---|---|
+| POST / GET | /spaces/{spaceId}/investment-accounts | create; list with value, cost, unrealized/realized P/L, holdings count (converted, my-share) |
+| GET / PATCH / DELETE | /spaces/{spaceId}/investment-accounts/{id} | DELETE only when empty (409 `ACCOUNT_NOT_EMPTY`); otherwise archive |
+| PUT / DELETE | /spaces/{spaceId}/investment-accounts/{id}/participants | as P14 |
+| GET/POST | invitation inbox, accept, decline, leave | as P14, for accounts |
+| POST/PATCH | /spaces/{spaceId}/investments | accept optional `accountId`; kind mismatch → 422 `ACCOUNT_KIND_MISMATCH` |
+| GET | /spaces/{spaceId}/investments?accountId= | filter; `accountId=none` for ungrouped |
+
+| ID | Task | Technical approach | Pri | Size |
+|---|---|---|---|---|
+| P18-T01 | Migration + sqlc queries | Tables above; `investments.account_id` index | Critical | S |
+| P18-T02 | Account CRUD + kind validation | `internal/investmentaccounts`; archive vs delete | Critical | M |
+| P18-T03 | Assign/move investments | `accountId` on create/PATCH; refuse moving an investment that has its own participants into a shared account (409 `INVESTMENT_HAS_PARTICIPANTS`) | Critical | M |
+| P18-T04 | Account valuation | Sum holdings with the P10 `Value`/`Summarize` and the P5 aggregator; per-account totals and P/L | Critical | M |
+| P18-T05 | Account-level sharing | Reuse `allocation.Split` and the P14 participant/invitation flow keyed by account; holdings inherit the account's shares (effective share resolved in one place) | Critical | L |
+| P18-T06 | Net worth and allocation integration | `networth.Compute`, `Allocate`, `AllocateRealized`, `include=shared` use the effective shares; no double counting | Critical | M |
+| P18-T07 | Tests | Unit (effective share resolution) + e2e: kind rules, totals, move in/out, shared account visible to a participant, non-member 404, ledger invariant unaffected | Critical | M |
+
+**Open decisions (proposed defaults, confirm before implementation):**
+1. Overlapping shares: holdings inside an account take the account's shares (D-15); ungrouped investments keep individual sharing.
+2. Moving an investment with its own participants into a shared account is blocked until they are removed.
+3. Kinds limited to `SECURITIES` and `EXCHANGE`; a securities account holds both ID and US stocks.
+4. Accounts hold no cash balance; buys and sells stay funded from wallets.
+5. Existing investments stay ungrouped until assigned (no auto-migration).
+
+**Acceptance criteria:** a crypto account holding BTC and ETH reports their combined value and P/L; adding a stock to it → 422; sharing an account 50/50 gives the participant 50% of every holding (including ones added later) in their net worth and allocation; individual investment sharing still works; a non-member gets 404.
+
+---
+
+### P19: Hardening, docs & deployment
 
 **Goal:** Production readiness.
 **Depends on:** all phases · **Size:** Medium
 
 | ID | Task | Technical approach | Pri | Size |
 |---|---|---|---|---|
-| P18-T01 | Isolation sweep | An e2e test that walks the chi route tree and asserts 404 for a non-member on every `/spaces/{spaceId}` route | Critical | M |
-| P18-T02 | Security review | Checklist: CORS allowlist, cookie flags, security headers middleware, body limits, parameterized sqlc queries (no hand-built SQL strings), no secrets in logs, argon2id parameters, JWT secret rotation procedure documented | Critical | M |
-| P18-T03 | Rate-limit tuning | Global 120/min per user; stricter limits on auth and search | High | S |
-| P18-T04 | OpenAPI completeness | `swag` examples on every handler; `make swagger` → `openapi.yaml` for frontend client generation | High | S |
-| P18-T05 | Dockerfile | Multi-stage build (Go build stage → distroless/alpine runtime), non-root user, `goose up` as a release step (or an init container/entrypoint step — decide here), healthcheck hitting `/health` | Critical | S |
-| P18-T06 | CI pipeline | GitHub Actions: `go vet`, `golangci-lint`, unit tests, e2e tests with a Postgres service container, build and push the image | Critical | S |
-| P18-T07 | Observability | zerolog JSON output, Sentry (optional, `getsentry/sentry-go`), a small script to query recent `job_runs`, failed-job alert via log-based alert | Medium | S |
-| P18-T08 | Seed/demo data | `make seed-demo` (a small Go command) creating a user with wallets, transactions, investments, a shared investment, and goals | Medium | S |
-| P18-T09 | Deployment runbook | Environments, env vars, backups (managed DB point-in-time recovery), rollback steps | High | S |
+| P19-T01 | Isolation sweep | An e2e test that walks the chi route tree and asserts 404 for a non-member on every `/spaces/{spaceId}` route | Critical | M |
+| P19-T02 | Security review | Checklist: CORS allowlist, cookie flags, security headers middleware, body limits, parameterized sqlc queries (no hand-built SQL strings), no secrets in logs, argon2id parameters, JWT secret rotation procedure documented | Critical | M |
+| P19-T03 | Rate-limit tuning | Global 120/min per user; stricter limits on auth and search | High | S |
+| P19-T04 | OpenAPI completeness | `swag` examples on every handler; `make swagger` → `openapi.yaml` for frontend client generation | High | S |
+| P19-T05 | Dockerfile | Multi-stage build (Go build stage → distroless/alpine runtime), non-root user, `goose up` as a release step (or an init container/entrypoint step — decide here), healthcheck hitting `/health` | Critical | S |
+| P19-T06 | CI pipeline | GitHub Actions: `go vet`, `golangci-lint`, unit tests, e2e tests with a Postgres service container, build and push the image | Critical | S |
+| P19-T07 | Observability | zerolog JSON output, Sentry (optional, `getsentry/sentry-go`), a small script to query recent `job_runs`, failed-job alert via log-based alert | Medium | S |
+| P19-T08 | Seed/demo data | `make seed-demo` (a small Go command) creating a user with wallets, transactions, investments, a shared investment, and goals | Medium | S |
+| P19-T09 | Deployment runbook | Environments, env vars, backups (managed DB point-in-time recovery), rollback steps | High | S |
 
 **Acceptance criteria:** CI is green on main; the container starts with only env vars; the isolation sweep covers 100% of space routes; the runbook has been followed once on staging.
 
