@@ -24,6 +24,7 @@ import (
 	"github.com/JonathanRainee/hzzt/internal/server"
 	"github.com/JonathanRainee/hzzt/internal/spaces"
 	"github.com/JonathanRainee/hzzt/internal/users"
+	"github.com/JonathanRainee/hzzt/internal/wallets"
 )
 
 // @title			Hzzt API
@@ -98,6 +99,8 @@ func run() error {
 	categoriesSvc := categories.NewService(pool)
 	categoriesSvc.Subscribe(bus) // space.created → default categories
 	categoriesHandler := categories.NewHandler(categoriesSvc, authSvc, spacesSvc)
+	walletsSvc := wallets.NewService(pool, currencySvc, nil)
+	walletsHandler := wallets.NewHandler(walletsSvc, authSvc, spacesSvc)
 	stopJobs, err := currencySvc.StartJobs(ctx, log)
 	if err != nil {
 		return err
@@ -106,7 +109,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           server.NewRouter(cfg, log, sqlc.New(pool), authHandler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount),
+		Handler:           server.NewRouter(cfg, log, sqlc.New(pool), authHandler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount, walletsHandler.Mount),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,

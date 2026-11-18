@@ -1,0 +1,322 @@
+// Package wallets implements wallets with card styling and cached balances.
+// Balance changes always go through package ledger.
+package wallets
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/shopspring/decimal"
+
+	"github.com/JonathanRainee/hzzt/internal/currency"
+	"github.com/JonathanRainee/hzzt/internal/db"
+	"github.com/JonathanRainee/hzzt/internal/db/sqlc"
+	"github.com/JonathanRainee/hzzt/internal/ledger"
+	"github.com/JonathanRainee/hzzt/internal/platform/apperror"
+)
+
+// Wallet types.
+const (
+	TypeBank    = "BANK"
+	TypeEWallet = "E_WALLET"
+	TypeCash    = "CASH"
+	TypeOther   = "OTHER"
+)
+
+// Error codes owned by this package (see plan Appendix B).
+const (
+	CodeWalletNotFound       = "WALLET_NOT_FOUND"
+	CodeWalletCurrencyLocked = "WALLET_CURRENCY_LOCKED"
+	CodeWalletHasBalance     = "WALLET_HAS_BALANCE"
+)
+
+var (
+	errWalletNF       = apperror.New(404, CodeWalletNotFound, "Wallet not found")
+	errCurrencyLocked = apperror.Unprocessable(CodeWalletCurrencyLocked, "The currency cannot change once the wallet has transactions")
+	errHasBalance     = apperror.Unprocessable(CodeWalletHasBalance, "The wallet still has a balance; pass force=true to delete it anyway")
+)
+
+// DB is what the service needs; *pgxpool.Pool and pgx.Tx both satisfy it.
+type DB interface {
+	sqlc.DBTX
+	db.TxStarter
+}
+
+// Service holds wallet logic.
+type Service struct {
+	db       DB
+	q        *sqlc.Queries
+	currency *currency.Service
+	now      func() time.Time
+}
+
+// NewService builds the service; now may be nil.
+func NewService(database DB, cur *currency.Service, now func() time.Time) *Service {
+	if now == nil {
+		now = time.Now
+	}
+	return &Service{db: database, q: sqlc.New(database), currency: cur, now: now}
+}
+
+// Wallet pairs a row with its decoded card style.
+type Wallet struct {
+	sqlc.Wallet
+	Style CardStyle
+}
+
+func toWallet(w sqlc.Wallet) (Wallet, error) {
+	var cs CardStyle
+	if err := json.Unmarshal(w.CardStyle, &cs); err != nil {
+		return Wallet{}, fmt.Errorf("decode card style of wallet %s: %w", w.ID, err)
+	}
+	return Wallet{Wallet: w, Style: cs}, nil
+}
+
+func toWallets(ws []sqlc.Wallet) ([]Wallet, error) {
+	out := make([]Wallet, 0, len(ws))
+	for _, w := range ws {
+		x, err := toWallet(w)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, x)
+	}
+	return out, nil
+}
+
+// ListResult is the wallet list plus the converted total.
+type ListResult struct {
+	Wallets []Wallet
+	Total   currency.AggregateResult
+}
+
+// List returns live wallets (favorites first, then sort_order) and their total
+// converted to the space's base currency.
+func (s *Service) List(ctx context.Context, spaceID uuid.UUID) (ListResult, error) {
+	rows, err := s.q.ListWallets(ctx, spaceID)
+	if err != nil {
+		return ListResult{}, err
+	}
+	ws, err := toWallets(rows)
+	if err != nil {
+		return ListResult{}, err
+	}
+	cc, err := s.currency.BuildContext(ctx, spaceID)
+	if err != nil {
+		return ListResult{}, err
+	}
+	items := make([]currency.MoneyItem, 0, len(ws))
+	for _, w := range ws {
+		items = append(items, currency.MoneyItem{Label: w.Name, Amount: w.Balance, Currency: w.Currency})
+	}
+	return ListResult{Wallets: ws, Total: currency.Aggregate(items, cc)}, nil
+}
+
+// Get returns one live wallet of the space.
+func (s *Service) Get(ctx context.Context, spaceID, id uuid.UUID) (Wallet, error) {
+	w, err := s.q.GetWallet(ctx, sqlc.GetWalletParams{ID: id, SpaceID: spaceID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Wallet{}, errWalletNF
+	}
+	if err != nil {
+		return Wallet{}, err
+	}
+	return toWallet(w)
+}
+
+// CreateInput describes a new wallet.
+type CreateInput struct {
+	Type, Name, Icon string
+	Currency         string // "" → the space's base currency
+	InitialBalance   decimal.Decimal
+	Style            *CardStyle
+	Favorite         bool
+}
+
+// Create inserts a wallet; a non-zero initial balance becomes an OPENING_BALANCE
+// transaction written in the same database transaction.
+func (s *Service) Create(ctx context.Context, space sqlc.Space, userID uuid.UUID, in CreateInput) (Wallet, error) {
+	cur := strings.ToUpper(strings.TrimSpace(in.Currency))
+	if cur == "" {
+		cur = strings.TrimSpace(space.BaseCurrency)
+	}
+	style := DefaultCardStyle()
+	if in.Style != nil {
+		style = *in.Style
+	}
+	styleJSON, err := json.Marshal(style)
+	if err != nil {
+		return Wallet{}, err
+	}
+
+	var created sqlc.Wallet
+	err = db.WithTx(ctx, s.db, func(tx pgx.Tx) error {
+		q := s.q.WithTx(tx)
+		order, err := q.NextWalletSortOrder(ctx, space.ID)
+		if err != nil {
+			return err
+		}
+		w, err := q.CreateWallet(ctx, sqlc.CreateWalletParams{
+			SpaceID: space.ID, Type: in.Type, Name: in.Name, Icon: in.Icon, Currency: cur,
+			IsFavorite: in.Favorite, SortOrder: order, CardStyle: styleJSON, CreatedByID: userID,
+		})
+		if err != nil {
+			return fmt.Errorf("create wallet: %w", err)
+		}
+		if !in.InitialBalance.IsZero() {
+			if err := s.writeBalanceTx(ctx, tx, w, userID, ledger.TypeOpeningBalance, "Opening balance", nil, in.InitialBalance); err != nil {
+				return err
+			}
+		}
+		created, err = q.GetWallet(ctx, sqlc.GetWalletParams{ID: w.ID, SpaceID: space.ID})
+		return err
+	})
+	if err != nil {
+		return Wallet{}, err
+	}
+	return toWallet(created)
+}
+
+// writeBalanceTx records a signed balance change as an OPENING_BALANCE or ADJUSTMENT
+// transaction and applies it through the ledger, inside the caller's tx.
+func (s *Service) writeBalanceTx(ctx context.Context, tx pgx.Tx, w sqlc.Wallet, userID uuid.UUID, typ, title string, note *string, signed decimal.Decimal) error {
+	dir := ledger.DirectionIn
+	if signed.IsNegative() {
+		dir = ledger.DirectionOut
+	}
+	t, err := sqlc.New(tx).CreateTransaction(ctx, sqlc.CreateTransactionParams{
+		SpaceID: w.SpaceID, Type: typ, Direction: &dir, Title: &title, Note: note,
+		Amount: signed.Abs(), Currency: w.Currency, WalletID: uuid.NullUUID{UUID: w.ID, Valid: true},
+		OccurredAt: s.now().UTC(), CreatedByID: userID,
+	})
+	if err != nil {
+		return fmt.Errorf("create %s transaction: %w", typ, err)
+	}
+	return ledger.Apply(ctx, tx, t)
+}
+
+// UpdateInput is a partial update; nil means "not sent".
+type UpdateInput struct {
+	Type, Name, Icon, Currency *string
+	Style                      *CardStyle
+	Favorite                   *bool
+}
+
+// Update applies a partial update.
+func (s *Service) Update(ctx context.Context, spaceID, id uuid.UUID, in UpdateInput) (Wallet, error) {
+	var out sqlc.Wallet
+	err := db.WithTx(ctx, s.db, func(tx pgx.Tx) error {
+		q := s.q.WithTx(tx)
+		cur, err := q.GetWalletForUpdate(ctx, sqlc.GetWalletForUpdateParams{ID: id, SpaceID: spaceID})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errWalletNF
+		}
+		if err != nil {
+			return err
+		}
+		p := sqlc.UpdateWalletParams{ID: id, SpaceID: spaceID, Type: in.Type, Name: in.Name, Icon: in.Icon, IsFavorite: in.Favorite}
+		if in.Currency != nil && !strings.EqualFold(*in.Currency, cur.Currency) {
+			used, err := q.WalletHasTransactions(ctx, uuid.NullUUID{UUID: id, Valid: true})
+			if err != nil {
+				return err
+			}
+			if used {
+				return errCurrencyLocked
+			}
+			p.Currency = in.Currency
+		}
+		if in.Style != nil {
+			b, err := json.Marshal(in.Style)
+			if err != nil {
+				return err
+			}
+			p.CardStyle = b
+		}
+		out, err = q.UpdateWallet(ctx, p)
+		return err
+	})
+	if err != nil {
+		return Wallet{}, err
+	}
+	return toWallet(out)
+}
+
+// SetBalance moves the wallet to newBalance by recording an ADJUSTMENT for the
+// difference. A zero difference records nothing.
+func (s *Service) SetBalance(ctx context.Context, spaceID, id, userID uuid.UUID, newBalance decimal.Decimal, note *string) (Wallet, error) {
+	var out sqlc.Wallet
+	err := db.WithTx(ctx, s.db, func(tx pgx.Tx) error {
+		q := s.q.WithTx(tx)
+		w, err := q.GetWalletForUpdate(ctx, sqlc.GetWalletForUpdateParams{ID: id, SpaceID: spaceID})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errWalletNF
+		}
+		if err != nil {
+			return err
+		}
+		out = w
+		delta := newBalance.Sub(w.Balance)
+		if delta.IsZero() {
+			return nil
+		}
+		if err := s.writeBalanceTx(ctx, tx, w, userID, ledger.TypeAdjustment, "Balance adjustment", note, delta); err != nil {
+			return err
+		}
+		out, err = q.GetWallet(ctx, sqlc.GetWalletParams{ID: id, SpaceID: spaceID})
+		return err
+	})
+	if err != nil {
+		return Wallet{}, err
+	}
+	return toWallet(out)
+}
+
+// Delete soft-deletes a wallet. A non-zero balance needs force.
+func (s *Service) Delete(ctx context.Context, spaceID, id uuid.UUID, force bool) error {
+	return db.WithTx(ctx, s.db, func(tx pgx.Tx) error {
+		q := s.q.WithTx(tx)
+		w, err := q.GetWalletForUpdate(ctx, sqlc.GetWalletForUpdateParams{ID: id, SpaceID: spaceID})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errWalletNF
+		}
+		if err != nil {
+			return err
+		}
+		if !w.Balance.IsZero() && !force {
+			return errHasBalance
+		}
+		_, err = q.SoftDeleteWallet(ctx, sqlc.SoftDeleteWalletParams{ID: id, SpaceID: spaceID})
+		return err
+	})
+}
+
+// Reorder sets the display order; ids must list every live wallet exactly once.
+func (s *Service) Reorder(ctx context.Context, spaceID uuid.UUID, ids []uuid.UUID) error {
+	return db.WithTx(ctx, s.db, func(tx pgx.Tx) error {
+		q := s.q.WithTx(tx)
+		have, err := q.ListWalletIDsForUpdate(ctx, spaceID)
+		if err != nil {
+			return err
+		}
+		want := slices.Clone(ids)
+		cmp := func(a, b uuid.UUID) int { return slices.Compare(a[:], b[:]) }
+		slices.SortFunc(want, cmp)
+		slices.SortFunc(have, cmp)
+		if !slices.Equal(want, have) {
+			return apperror.Validation("Validation failed", map[string]any{"ids": "must list every wallet of this space exactly once"})
+		}
+		for i, id := range ids {
+			if err := q.SetWalletSortOrder(ctx, sqlc.SetWalletSortOrderParams{ID: id, SpaceID: spaceID, SortOrder: int32(i)}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
