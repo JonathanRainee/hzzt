@@ -40,6 +40,8 @@ const LotSize = 100
 const (
 	CodeAutoPriceNotSupported = "AUTO_PRICE_NOT_SUPPORTED"
 	CodeInvestmentNotFound    = "INVESTMENT_NOT_FOUND"
+	CodePriceModeNotAuto      = "PRICE_MODE_NOT_AUTO"
+	CodeInstrumentNotLinked   = "INSTRUMENT_NOT_LINKED"
 )
 
 var (

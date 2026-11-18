@@ -20,6 +20,8 @@ import (
 	"github.com/JonathanRainee/hzzt/internal/db"
 	"github.com/JonathanRainee/hzzt/internal/db/sqlc"
 	"github.com/JonathanRainee/hzzt/internal/investments"
+	"github.com/JonathanRainee/hzzt/internal/marketdata"
+	"github.com/JonathanRainee/hzzt/internal/marketdata/coinmarketcap"
 	"github.com/JonathanRainee/hzzt/internal/platform/email"
 	"github.com/JonathanRainee/hzzt/internal/platform/events"
 	"github.com/JonathanRainee/hzzt/internal/server"
@@ -108,7 +110,20 @@ func run() error {
 	categoriesSvc.SetUsageChecker(transactionsSvc.CategoryInUse) // locks a category's type once used
 	transactionsHandler := transactions.NewHandler(transactionsSvc, authSvc, spacesSvc)
 	transfersHandler := transfers.NewHandler(transfers.NewService(pool, transactionsSvc, nil), authSvc, spacesSvc)
-	investmentsHandler := investments.NewHandler(investments.NewService(pool, currencySvc, nil), authSvc, spacesSvc)
+	var crypto marketdata.Crypto // stays a nil interface when no key is configured
+	if cfg.CMCAPIKey != "" {
+		crypto = coinmarketcap.New("", cfg.CMCAPIKey)
+	}
+	marketSvc := marketdata.NewService(pool, marketdata.Options{Crypto: crypto, Log: log, RefreshMinutes: cfg.CMCRefreshMinutes})
+	investmentsSvc := investments.NewService(pool, currencySvc, nil)
+	investmentsSvc.SetMarket(marketSvc)
+	investmentsHandler := investments.NewHandler(investmentsSvc, authSvc, spacesSvc, investments.DefaultLimits())
+	marketHandler := marketdata.NewHandler(marketSvc, authSvc)
+	stopMarket, err := marketSvc.StartJobs(ctx, log)
+	if err != nil {
+		return err
+	}
+	defer stopMarket()
 	stopJobs, err := currencySvc.StartJobs(ctx, log)
 	if err != nil {
 		return err
@@ -117,7 +132,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           server.NewRouter(cfg, log, sqlc.New(pool), authHandler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount, walletsHandler.Mount, transactionsHandler.Mount, transfersHandler.Mount, investmentsHandler.Mount),
+		Handler:           server.NewRouter(cfg, log, sqlc.New(pool), authHandler.Mount, usersHandler.Mount, spacesHandler.Mount, currencyHandler.Mount, categoriesHandler.Mount, walletsHandler.Mount, transactionsHandler.Mount, transfersHandler.Mount, investmentsHandler.Mount, marketHandler.Mount),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,

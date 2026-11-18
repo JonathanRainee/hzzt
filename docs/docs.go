@@ -570,6 +570,55 @@ const docTemplate = `{
                 }
             }
         },
+        "/market/crypto/search": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Served from the local coin list (no provider call). Exact symbol matches first, then symbol prefixes, then name matches, each ordered by market-cap rank. Send the chosen ` + "`" + `instrumentId` + "`" + ` when creating an AUTO crypto investment.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "market"
+                ],
+                "summary": "Search coins by symbol or name",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Search text",
+                        "name": "q",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Max results (default 20, max 50)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/marketdata.InstrumentDTO"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/me": {
             "get": {
                 "security": [
@@ -1765,7 +1814,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "The body is validated by ` + "`" + `assetType` + "`" + ` (see GET /investment-types). ID_STOCK takes ` + "`" + `details.lots` + "`" + ` and derives quantity = lots × 100. CRYPTO checks ` + "`" + `details.stakedQuantity` + "`" + ` \u003c= quantity. ` + "`" + `priceMode: AUTO` + "`" + ` is accepted for CRYPTO, US_STOCK and GLOBAL_ETF (falling back to the manual price until market data is connected) and answers 422 AUTO_PRICE_NOT_SUPPORTED otherwise.",
+                "description": "The body is validated by ` + "`" + `assetType` + "`" + ` (see GET /investment-types). ID_STOCK takes ` + "`" + `details.lots` + "`" + ` and derives quantity = lots × 100. CRYPTO checks ` + "`" + `details.stakedQuantity` + "`" + ` \u003c= quantity. ` + "`" + `priceMode: AUTO` + "`" + ` is accepted for CRYPTO, US_STOCK and GLOBAL_ETF and answers 422 AUTO_PRICE_NOT_SUPPORTED otherwise. An AUTO CRYPTO investment is linked to a coin: send the ` + "`" + `instrumentId` + "`" + ` picked from GET /market/crypto/search, or the symbol is resolved to the highest-ranked coin (422 INSTRUMENT_NOT_FOUND if none matches). Without a market price the manual price is used.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1968,6 +2017,71 @@ const docTemplate = `{
                     },
                     "422": {
                         "description": "AUTO_PRICE_NOT_SUPPORTED",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/spaces/{spaceId}/investments/{id}/refresh-price": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Rate limited to 1 per minute per investment. On a provider failure the last known price is kept (it turns stale).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "investments"
+                ],
+                "summary": "Refresh the market price of an AUTO investment now",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Investment ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/investments.InvestmentDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "422": {
+                        "description": "AUTO_PRICE_NOT_SUPPORTED / PRICE_MODE_NOT_AUTO / INSTRUMENT_NOT_LINKED",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "502": {
+                        "description": "UPSTREAM_PROVIDER_ERROR",
                         "schema": {
                             "$ref": "#/definitions/httpx.ErrorEnvelope"
                         }
@@ -3979,6 +4093,10 @@ const docTemplate = `{
                     "type": "string",
                     "maxLength": 64
                 },
+                "instrumentId": {
+                    "description": "InstrumentID relinks a CRYPTO investment to a coin picked from search.",
+                    "type": "string"
+                },
                 "manualCurrentValue": {
                     "type": "string"
                 },
@@ -4151,6 +4269,26 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/currency.Warning"
                     }
+                }
+            }
+        },
+        "marketdata.InstrumentDTO": {
+            "type": "object",
+            "properties": {
+                "instrumentId": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Bitcoin"
+                },
+                "rank": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "symbol": {
+                    "type": "string",
+                    "example": "BTC"
                 }
             }
         },

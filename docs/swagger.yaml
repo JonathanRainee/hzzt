@@ -475,6 +475,10 @@ definitions:
       icon:
         maxLength: 64
         type: string
+      instrumentId:
+        description: InstrumentID relinks a CRYPTO investment to a coin picked from
+          search.
+        type: string
       manualCurrentValue:
         type: string
       manualFxRate:
@@ -595,6 +599,20 @@ definitions:
         items:
           $ref: '#/definitions/currency.Warning'
         type: array
+    type: object
+  marketdata.InstrumentDTO:
+    properties:
+      instrumentId:
+        type: string
+      name:
+        example: Bitcoin
+        type: string
+      rank:
+        example: 1
+        type: integer
+      symbol:
+        example: BTC
+        type: string
     type: object
   server.StatusResponse:
     properties:
@@ -1487,6 +1505,39 @@ paths:
       summary: Join a space with an invitation code (as MEMBER)
       tags:
       - spaces
+  /market/crypto/search:
+    get:
+      description: Served from the local coin list (no provider call). Exact symbol
+        matches first, then symbol prefixes, then name matches, each ordered by market-cap
+        rank. Send the chosen `instrumentId` when creating an AUTO crypto investment.
+      parameters:
+      - description: Search text
+        in: query
+        name: q
+        required: true
+        type: string
+      - description: Max results (default 20, max 50)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/marketdata.InstrumentDTO'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Search coins by symbol or name
+      tags:
+      - market
   /me:
     delete:
       consumes:
@@ -2257,8 +2308,11 @@ paths:
       description: 'The body is validated by `assetType` (see GET /investment-types).
         ID_STOCK takes `details.lots` and derives quantity = lots × 100. CRYPTO checks
         `details.stakedQuantity` <= quantity. `priceMode: AUTO` is accepted for CRYPTO,
-        US_STOCK and GLOBAL_ETF (falling back to the manual price until market data
-        is connected) and answers 422 AUTO_PRICE_NOT_SUPPORTED otherwise.'
+        US_STOCK and GLOBAL_ETF and answers 422 AUTO_PRICE_NOT_SUPPORTED otherwise.
+        An AUTO CRYPTO investment is linked to a coin: send the `instrumentId` picked
+        from GET /market/crypto/search, or the symbol is resolved to the highest-ranked
+        coin (422 INSTRUMENT_NOT_FOUND if none matches). Without a market price the
+        manual price is used.'
       parameters:
       - description: Space ID
         in: path
@@ -2393,6 +2447,49 @@ paths:
       security:
       - BearerAuth: []
       summary: Update an investment
+      tags:
+      - investments
+  /spaces/{spaceId}/investments/{id}/refresh-price:
+    post:
+      description: Rate limited to 1 per minute per investment. On a provider failure
+        the last known price is kept (it turns stale).
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Investment ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/investments.InvestmentDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "422":
+          description: AUTO_PRICE_NOT_SUPPORTED / PRICE_MODE_NOT_AUTO / INSTRUMENT_NOT_LINKED
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "502":
+          description: UPSTREAM_PROVIDER_ERROR
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Refresh the market price of an AUTO investment now
       tags:
       - investments
   /spaces/{spaceId}/invitations:
