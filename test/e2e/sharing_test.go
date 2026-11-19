@@ -834,7 +834,7 @@ func TestSharedInInvestmentDetailForTheParticipant(t *testing.T) {
 		assert.Equal(t, 2000, it.MyShareBps)
 		require.NotNil(t, it.TotalValuation)
 		assert.True(t, dec("1000.01").Equal(dec(it.TotalValuation.MarketValue)), "the whole in the quote currency")
-		assert.True(t, dec("200.002").Equal(dec(it.Valuation.MarketValue)), "Bob's 20%%: %s", it.Valuation.MarketValue)
+		assert.Equal(t, "200.00", it.Valuation.MarketValue, "Bob's 20%% of 1000.01, shown with 2 decimals")
 		require.NotNil(t, it.Valuation.Base)
 		assert.Equal(t, "IDR", it.Valuation.Base.Currency, "valued in Bob's base currency, not the owner's")
 		assert.True(t, dec("3200032").Equal(dec(it.Valuation.Base.MarketValue)), it.Valuation.Base.MarketValue)

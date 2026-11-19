@@ -1490,6 +1490,46 @@ const docTemplate = `{
                 }
             }
         },
+        "/spaces/{spaceId}/assets/summary": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Cash per wallet (with its base-currency balance and share of the cash total), investments per asset type (value, unrealised profit/loss, share of the investments total), and fixed assets, money owed (receivables) and debts (liabilities) with their items, all converted to the space base currency with one FX snapshot, so the totals equal GET /net-worth/summary. Investments count my share, shared-in ones included. Anything without a usable FX rate has a null base value, is left out of the totals and reported in ` + "`" + `warnings` + "`" + `. Amounts show no decimals for IDR and JPY and 2 for every other currency; percentages have 2 decimals and the slices of a section add up to exactly 100.00. In CASH_ONLY tracking mode only ` + "`" + `cash` + "`" + ` is returned.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "net-worth"
+                ],
+                "summary": "The asset page in one response",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/networth.AssetSummaryDTO"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/spaces/{spaceId}/categories": {
             "get": {
                 "security": [
@@ -5707,7 +5747,7 @@ const docTemplate = `{
                 "pct": {
                     "description": "a percentage of the total",
                     "type": "string",
-                    "example": "42.5"
+                    "example": "42.50"
                 }
             }
         },
@@ -6633,8 +6673,9 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "amount": {
+                    "description": "Amount is in the investment's quote currency, Base in the space's base currency (null without an FX rate).",
                     "type": "string",
-                    "example": "5990"
+                    "example": "5990.00"
                 },
                 "base": {
                     "type": "string"
@@ -7059,9 +7100,9 @@ const docTemplate = `{
                     "example": "IDR"
                 },
                 "currentValue": {
-                    "description": "a liability's outstanding amount",
+                    "description": "in the asset's currency (IDR and JPY: no decimals, others 2); a liability's outstanding amount",
                     "type": "string",
-                    "example": "500"
+                    "example": "500.00"
                 },
                 "dueDate": {
                     "type": "string",
@@ -7289,6 +7330,136 @@ const docTemplate = `{
                 }
             }
         },
+        "networth.AssetLineDTO": {
+            "type": "object",
+            "properties": {
+                "baseValue": {
+                    "type": "string"
+                },
+                "currency": {
+                    "type": "string",
+                    "example": "IDR"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "pctOfTotal": {
+                    "type": "string"
+                },
+                "value": {
+                    "description": "Value is in the asset's currency, BaseValue in the space's base currency (null without an FX rate).",
+                    "type": "string"
+                }
+            }
+        },
+        "networth.AssetSectionDTO": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/networth.AssetLineDTO"
+                    }
+                },
+                "total": {
+                    "type": "string"
+                }
+            }
+        },
+        "networth.AssetSummaryDTO": {
+            "type": "object",
+            "properties": {
+                "asOf": {
+                    "type": "string"
+                },
+                "cash": {
+                    "$ref": "#/definitions/networth.CashSectionDTO"
+                },
+                "currency": {
+                    "type": "string",
+                    "example": "IDR"
+                },
+                "fixedAssets": {
+                    "$ref": "#/definitions/networth.AssetSectionDTO"
+                },
+                "investments": {
+                    "$ref": "#/definitions/networth.InvestmentsSectionDTO"
+                },
+                "liabilities": {
+                    "$ref": "#/definitions/networth.AssetSectionDTO"
+                },
+                "netWorth": {
+                    "type": "string"
+                },
+                "receivables": {
+                    "$ref": "#/definitions/networth.AssetSectionDTO"
+                },
+                "trackingMode": {
+                    "type": "string",
+                    "enum": [
+                        "FULL_NET_WORTH",
+                        "CASH_ONLY"
+                    ]
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/currency.Warning"
+                    }
+                }
+            }
+        },
+        "networth.CashSectionDTO": {
+            "type": "object",
+            "properties": {
+                "pctOfNetWorth": {
+                    "type": "string"
+                },
+                "total": {
+                    "type": "string"
+                },
+                "wallets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/networth.WalletLineDTO"
+                    }
+                }
+            }
+        },
+        "networth.CategoryLineDTO": {
+            "type": "object",
+            "properties": {
+                "assetType": {
+                    "type": "string",
+                    "enum": [
+                        "CRYPTO",
+                        "ID_STOCK",
+                        "US_STOCK",
+                        "MUTUAL_FUND",
+                        "GLOBAL_ETF"
+                    ]
+                },
+                "label": {
+                    "type": "string",
+                    "example": "Crypto"
+                },
+                "pctOfTotal": {
+                    "type": "string"
+                },
+                "unrealizedPl": {
+                    "type": "string"
+                },
+                "unrealizedPlPct": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "string"
+                }
+            }
+        },
         "networth.HistoryDTO": {
             "type": "object",
             "properties": {
@@ -7332,6 +7503,29 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "value": {
+                    "type": "string"
+                }
+            }
+        },
+        "networth.InvestmentsSectionDTO": {
+            "type": "object",
+            "properties": {
+                "categories": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/networth.CategoryLineDTO"
+                    }
+                },
+                "cost": {
+                    "type": "string"
+                },
+                "total": {
+                    "type": "string"
+                },
+                "unrealizedPl": {
+                    "type": "string"
+                },
+                "unrealizedPlPct": {
                     "type": "string"
                 }
             }
@@ -7392,6 +7586,41 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/currency.Warning"
                     }
+                }
+            }
+        },
+        "networth.WalletLineDTO": {
+            "type": "object",
+            "properties": {
+                "balance": {
+                    "description": "Balance is in the wallet's currency, BaseBalance in the space's base currency (null without an FX rate).",
+                    "type": "string"
+                },
+                "baseBalance": {
+                    "type": "string"
+                },
+                "currency": {
+                    "type": "string",
+                    "example": "USD"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "pctOfTotal": {
+                    "description": "PctOfTotal is the wallet's share of the cash total; the shares add up to exactly 100.00.",
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string",
+                    "enum": [
+                        "BANK",
+                        "E_WALLET",
+                        "CASH",
+                        "OTHER"
+                    ]
                 }
             }
         },
@@ -8097,6 +8326,7 @@ const docTemplate = `{
                     "example": "34.26"
                 },
                 "balance": {
+                    "description": "Balance, Reserved and Available are in the wallet's currency: IDR and JPY show no decimals, others 2.",
                     "type": "string",
                     "example": "134.26"
                 },
@@ -8137,7 +8367,7 @@ const docTemplate = `{
                 "reserved": {
                     "description": "Reserved is the part of the balance earmarked for goals; Available = balance − reserved\nand may be negative when expenses pushed the wallet below its reserves (OverReserved).",
                     "type": "string",
-                    "example": "100"
+                    "example": "100.00"
                 },
                 "sortOrder": {
                     "type": "integer"

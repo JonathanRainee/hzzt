@@ -4,8 +4,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/shopspring/decimal"
-
 	"github.com/JonathanRainee/hzzt/internal/auth"
 	"github.com/JonathanRainee/hzzt/internal/currency"
 	"github.com/JonathanRainee/hzzt/internal/platform/apperror"
@@ -16,14 +14,15 @@ import (
 
 // TotalsDTO are base-currency sums.
 type TotalsDTO struct {
-	Value           decimal.Decimal `json:"value" swaggertype:"string" example:"900000"`
-	Cost            decimal.Decimal `json:"cost" swaggertype:"string" example:"700000"`
-	UnrealizedPL    decimal.Decimal `json:"unrealizedPl" swaggertype:"string" example:"200000"`
-	UnrealizedPLPct *money.Pct      `json:"unrealizedPlPct" swaggertype:"string" example:"28.57"`
+	Value           money.Amount `json:"value" swaggertype:"string" example:"900000"`
+	Cost            money.Amount `json:"cost" swaggertype:"string" example:"700000"`
+	UnrealizedPL    money.Amount `json:"unrealizedPl" swaggertype:"string" example:"200000"`
+	UnrealizedPLPct *money.Pct   `json:"unrealizedPlPct" swaggertype:"string" example:"28.57"`
 }
 
-func toTotalsDTO(t Totals) TotalsDTO {
-	return TotalsDTO{Value: t.Value, Cost: t.Cost, UnrealizedPL: t.UnrealizedPL, UnrealizedPLPct: money.PctPtr(t.UnrealizedPLPct)}
+func toTotalsDTO(t Totals, cur string) TotalsDTO {
+	return TotalsDTO{Value: money.NewAmount(t.Value, cur), Cost: money.NewAmount(t.Cost, cur), UnrealizedPL: money.NewAmount(t.UnrealizedPL, cur),
+		UnrealizedPLPct: money.PctPtr(t.UnrealizedPLPct)}
 }
 
 // WrapperGroupDTO is one exchange, broker or platform within an asset type.
@@ -110,14 +109,14 @@ func (h *Handler) grouped(w http.ResponseWriter, r *http.Request) {
 }
 
 func toGroupedResponse(g Grouped, al Allocations, withItems bool) GroupedResponse {
-	out := GroupedResponse{Currency: g.Currency, Total: toTotalsDTO(g.Total), Categories: make([]CategoryGroupDTO, 0, len(g.Categories)), Warnings: g.Warnings}
+	out := GroupedResponse{Currency: g.Currency, Total: toTotalsDTO(g.Total, g.Currency), Categories: make([]CategoryGroupDTO, 0, len(g.Categories)), Warnings: g.Warnings}
 	for _, c := range g.Categories {
-		cd := CategoryGroupDTO{AssetType: c.AssetType, Label: c.Label, TotalsDTO: toTotalsDTO(c.Totals),
+		cd := CategoryGroupDTO{AssetType: c.AssetType, Label: c.Label, TotalsDTO: toTotalsDTO(c.Totals, g.Currency),
 			PctOfTotal: money.PctPtr(c.PctOfTotal), Wrappers: make([]WrapperGroupDTO, 0, len(c.Wrappers))}
 		cat := al.category(c.AssetType)
 		cd.AssignedPct, cd.UnallocatedPct = money.NewPct(cat.AssignedPct), money.NewPct(cat.UnallocatedPct)
 		for _, wg := range c.Wrappers {
-			wd := WrapperGroupDTO{Wrapper: wg.Wrapper, Label: groupLabel(wg), Key: wg.Key, TotalsDTO: toTotalsDTO(wg.Totals),
+			wd := WrapperGroupDTO{Wrapper: wg.Wrapper, Label: groupLabel(wg), Key: wg.Key, TotalsDTO: toTotalsDTO(wg.Totals, g.Currency),
 				PctOfCategory: money.PctPtr(wg.PctOfCategory), PctOfTotal: money.PctPtr(wg.PctOfTotal), Count: len(wg.Items)}
 			if _, a, ok := al.find(c.AssetType, wg.Key); ok {
 				wd.TargetPct, wd.DriftPct = money.PctPtr(a.TargetPct), money.PctPtr(a.DriftPct)

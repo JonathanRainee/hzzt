@@ -60,33 +60,35 @@ func (h *Handler) Mount(r chi.Router) {
 
 // WalletDTO is the public representation of a wallet.
 type WalletDTO struct {
-	ID       uuid.UUID       `json:"id"`
-	Type     string          `json:"type" enums:"BANK,E_WALLET,CASH,OTHER"`
-	Name     string          `json:"name"`
-	Icon     string          `json:"icon"`
-	Currency string          `json:"currency" example:"IDR"`
-	Balance  decimal.Decimal `json:"balance" swaggertype:"string" example:"134.26"`
+	ID       uuid.UUID `json:"id"`
+	Type     string    `json:"type" enums:"BANK,E_WALLET,CASH,OTHER"`
+	Name     string    `json:"name"`
+	Icon     string    `json:"icon"`
+	Currency string    `json:"currency" example:"IDR"`
+	// Balance, Reserved and Available are in the wallet's currency: IDR and JPY show no decimals, others 2.
+	Balance money.Amount `json:"balance" swaggertype:"string" example:"134.26"`
 	// Reserved is the part of the balance earmarked for goals; Available = balance − reserved
 	// and may be negative when expenses pushed the wallet below its reserves (OverReserved).
-	Reserved     decimal.Decimal `json:"reserved" swaggertype:"string" example:"100"`
-	Available    decimal.Decimal `json:"available" swaggertype:"string" example:"34.26"`
-	OverReserved bool            `json:"overReserved"`
-	IsFavorite   bool            `json:"isFavorite"`
-	SortOrder    int             `json:"sortOrder"`
-	CardStyle    CardStyle       `json:"cardStyle"`
+	Reserved     money.Amount `json:"reserved" swaggertype:"string" example:"100.00"`
+	Available    money.Amount `json:"available" swaggertype:"string" example:"34.26"`
+	OverReserved bool         `json:"overReserved"`
+	IsFavorite   bool         `json:"isFavorite"`
+	SortOrder    int          `json:"sortOrder"`
+	CardStyle    CardStyle    `json:"cardStyle"`
 	// BaseBalance and PctOfTotal are set in the list response only: the balance in the space's
 	// base currency, and its share of the total (percentages add up to exactly 100.00). Null
 	// without an FX rate, or when the total is 0.
-	BaseBalance *decimal.Decimal `json:"baseBalance" swaggertype:"string" example:"2150000"`
-	PctOfTotal  *money.Pct       `json:"pctOfTotal" swaggertype:"string" example:"33.33"`
-	CreatedAt   time.Time        `json:"createdAt"`
+	BaseBalance *money.Amount `json:"baseBalance" swaggertype:"string" example:"2150000"`
+	PctOfTotal  *money.Pct    `json:"pctOfTotal" swaggertype:"string" example:"33.33"`
+	CreatedAt   time.Time     `json:"createdAt"`
 }
 
 // ToDTO converts a wallet.
 func ToDTO(w Wallet) WalletDTO {
 	return WalletDTO{
 		ID: w.ID, Type: w.Type, Name: w.Name, Icon: w.Icon, Currency: strings.TrimSpace(w.Currency),
-		Balance: w.Balance, Reserved: w.Reserved, Available: w.Available(), OverReserved: w.OverReserved(),
+		Balance: money.NewAmount(w.Balance, w.Currency), Reserved: money.NewAmount(w.Reserved, w.Currency),
+		Available: money.NewAmount(w.Available(), w.Currency), OverReserved: w.OverReserved(),
 		IsFavorite: w.IsFavorite, SortOrder: int(w.SortOrder),
 		CardStyle: w.Style, CreatedAt: w.CreatedAt.UTC(),
 	}
@@ -221,7 +223,8 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	for i, x := range res.Wallets {
 		d := ToDTO(x)
 		if v, ok := res.BaseBalance[x.ID]; ok {
-			d.BaseBalance = &v
+			ba := money.NewAmount(v, res.Total.Currency)
+			d.BaseBalance = &ba
 			idx, vals = append(idx, i), append(vals, v)
 		}
 		items = append(items, d)

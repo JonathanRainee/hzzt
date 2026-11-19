@@ -141,10 +141,11 @@ func toParticipantDTOs(ps []ParticipantView) []ParticipantDTO {
 
 // RealizedPLDTO is the total realized profit/loss of an investment's SELL transactions.
 type RealizedPLDTO struct {
-	Amount   decimal.Decimal  `json:"amount" swaggertype:"string" example:"5990"`
-	Currency string           `json:"currency" example:"USD"`
-	Base     *decimal.Decimal `json:"base" swaggertype:"string"`
-	Sells    int              `json:"sells"`
+	// Amount is in the investment's quote currency, Base in the space's base currency (null without an FX rate).
+	Amount   money.Amount  `json:"amount" swaggertype:"string" example:"5990.00"`
+	Currency string        `json:"currency" example:"USD"`
+	Base     *money.Amount `json:"base" swaggertype:"string"`
+	Sells    int           `json:"sells"`
 }
 
 func toDTO(it Item) InvestmentDTO {
@@ -156,7 +157,8 @@ func toDTO(it Item) InvestmentDTO {
 		Details: it.Details, Wrapper: i.Wrapper, IsShared: i.IsShared, Valuation: it.Valuation, TotalValuation: it.TotalValuation,
 		Ownership: it.Ownership, MyShareBps: it.MyShareBps, Participants: toParticipantDTOs(it.Participants),
 		RealizedPL: RealizedPLDTO{
-			Amount: it.Realized.Amount, Currency: strings.TrimSpace(i.QuoteCurrency), Base: it.Realized.Base, Sells: it.Realized.Sells,
+			Amount: money.NewAmount(it.Realized.Amount, i.QuoteCurrency), Currency: strings.TrimSpace(i.QuoteCurrency),
+			Base: money.AmountPtr(it.Realized.Base, it.Realized.BaseCurrency), Sells: it.Realized.Sells,
 		},
 		CreatedAt: i.CreatedAt.UTC(), UpdatedAt: i.UpdatedAt.UTC(),
 	}
