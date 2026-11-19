@@ -15,6 +15,7 @@ import (
 	"github.com/JonathanRainee/hzzt/internal/db/sqlc"
 	"github.com/JonathanRainee/hzzt/internal/platform/apperror"
 	"github.com/JonathanRainee/hzzt/internal/platform/httpx"
+	"github.com/JonathanRainee/hzzt/internal/platform/money"
 	"github.com/JonathanRainee/hzzt/internal/spaces"
 )
 
@@ -51,6 +52,7 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Use(h.auth.Middleware, h.spaces.Middleware)
 		const p = "/spaces/{spaceId}/investments"
 		r.Get(p, h.list)
+		r.Get(p+"/grouped", h.grouped)
 		r.Post(p, h.create)
 		r.Get(p+"/{id}", h.get)
 		r.Patch(p+"/{id}", h.update)
@@ -90,8 +92,12 @@ type InvestmentDTO struct {
 	EstimatedAnnualChangePct decimal.Decimal  `json:"estimatedAnnualChangePct" swaggertype:"string"`
 	ManualFxRate             *decimal.Decimal `json:"manualFxRate" swaggertype:"string"`
 	Details                  any              `json:"details" swaggertype:"object"`
-	InstrumentID             *uuid.UUID       `json:"instrumentId"`
-	IsShared                 bool             `json:"isShared"`
+	// Wrapper is the exchange, broker or platform the position is held on; null when unknown.
+	Wrapper      *string    `json:"wrapper" example:"Binance"`
+	InstrumentID *uuid.UUID `json:"instrumentId"`
+	IsShared     bool       `json:"isShared"`
+	// PctOfTotal is this investment's share of the portfolio's base-currency value (only in the list response; null without a base value).
+	PctOfTotal *money.Pct `json:"pctOfTotal"`
 	// Valuation is the viewer's part: the whole investment unless it is shared.
 	Valuation Valuation `json:"valuation"`
 	// TotalValuation is the whole investment's valuation; present only for shared investments.
@@ -145,7 +151,7 @@ func toDTO(it Item) InvestmentDTO {
 		ID: i.ID, AssetType: i.AssetType, PriceMode: i.PriceMode, Name: i.Name, Symbol: i.Symbol, Icon: i.Icon,
 		QuoteCurrency: strings.TrimSpace(i.QuoteCurrency), Quantity: i.Quantity, AvgBuyPrice: i.AvgBuyPrice,
 		ManualPrice: i.ManualPrice, Fees: i.Fees, EstimatedAnnualChangePct: i.EstimatedAnnualChangePct,
-		Details: it.Details, IsShared: i.IsShared, Valuation: it.Valuation, TotalValuation: it.TotalValuation,
+		Details: it.Details, Wrapper: i.Wrapper, IsShared: i.IsShared, Valuation: it.Valuation, TotalValuation: it.TotalValuation,
 		Ownership: it.Ownership, MyShareBps: it.MyShareBps, Participants: toParticipantDTOs(it.Participants),
 		RealizedPL: RealizedPLDTO{
 			Amount: it.Realized.Amount, Currency: strings.TrimSpace(i.QuoteCurrency), Base: it.Realized.Base, Sells: it.Realized.Sells,
@@ -227,16 +233,10 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	includeShared := false
-	for _, inc := range strings.Split(r.URL.Query().Get("include"), ",") {
-		switch strings.ToLower(strings.TrimSpace(inc)) {
-		case "":
-		case "shared":
-			includeShared = true
-		default:
-			httpx.WriteError(w, r, apperror.Validation("Validation failed", map[string]any{"include": "must be: shared"}))
-			return
-		}
+	includeShared, err := parseInclude(r)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
 	}
 	user, _ := auth.UserFromContext(r.Context())
 	res, err := h.svc.List(r.Context(), spaces.SpaceIDFromContext(r.Context()), at, includeShared, user.ID)
@@ -245,10 +245,28 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := ListResponse{Items: make([]InvestmentDTO, 0, len(res.Items)), Summary: res.Summary}
-	for _, it := range res.Items {
-		out.Items = append(out.Items, toDTO(it))
+	pcts := ItemPcts(res.Items)
+	for i, it := range res.Items {
+		d := toDTO(it)
+		d.PctOfTotal = money.PctPtr(pcts[i])
+		out.Items = append(out.Items, d)
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// parseInclude reads ?include=shared.
+func parseInclude(r *http.Request) (bool, error) {
+	includeShared := false
+	for _, inc := range strings.Split(r.URL.Query().Get("include"), ",") {
+		switch strings.ToLower(strings.TrimSpace(inc)) {
+		case "":
+		case "shared":
+			includeShared = true
+		default:
+			return false, apperror.Validation("Validation failed", map[string]any{"include": "must be: shared"})
+		}
+	}
+	return includeShared, nil
 }
 
 // CreateRequestDoc documents the create body; the real decoding is keyed on assetType.

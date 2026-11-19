@@ -55,6 +55,7 @@ type investmentBody struct {
 		Base     *string `json:"base"`
 		Sells    int     `json:"sells"`
 	} `json:"realizedPl"`
+	Wrapper      *string       `json:"wrapper"`
 	InstrumentID *string       `json:"instrumentId"`
 	IsShared     bool          `json:"isShared"`
 	Valuation    valuationBody `json:"valuation"`
