@@ -169,7 +169,7 @@ func snapshotOf(rows []sqlc.InvestmentParticipant) []byte {
 func (s *Service) Participants(ctx context.Context, spaceID, invID uuid.UUID, user sqlc.User) ([]ParticipantView, error) {
 	inv, err := s.q.GetInvestment(ctx, sqlc.GetInvestmentParams{ID: invID, SpaceID: spaceID})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, errInvestmentNF
+		return nil, missOrOwnerOnly(ctx, s.q, spaceID, user.ID, invID)
 	}
 	if err != nil {
 		return nil, err
@@ -204,7 +204,7 @@ func (s *Service) SetParticipants(ctx context.Context, spaceID, invID uuid.UUID,
 	var out []sqlc.InvestmentParticipant
 	err := db.WithTx(ctx, s.db, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
-		inv, err := lockInvestment(ctx, q, spaceID, invID)
+		inv, err := lockInvestment(ctx, q, spaceID, user.ID, invID)
 		if err != nil {
 			return err
 		}
@@ -384,7 +384,7 @@ func bpsPct(bps int) string {
 func (s *Service) StopSharing(ctx context.Context, spaceID, invID uuid.UUID, user sqlc.User) error {
 	return db.WithTx(ctx, s.db, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
-		inv, err := lockInvestment(ctx, q, spaceID, invID)
+		inv, err := lockInvestment(ctx, q, spaceID, user.ID, invID)
 		if err != nil {
 			return err
 		}
@@ -561,7 +561,7 @@ func (s *Service) auditParticipant(ctx context.Context, q *sqlc.Queries, user sq
 func (s *Service) ShareChanges(ctx context.Context, spaceID, invID uuid.UUID, userID uuid.UUID) ([]sqlc.InvestmentShareChange, error) {
 	inv, err := s.q.GetInvestment(ctx, sqlc.GetInvestmentParams{ID: invID, SpaceID: spaceID})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, errInvestmentNF
+		return nil, missOrOwnerOnly(ctx, s.q, spaceID, userID, invID)
 	}
 	if err != nil {
 		return nil, err

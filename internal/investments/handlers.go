@@ -298,8 +298,9 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 
 // get godoc
 //
-//	@Summary	Get an investment with its valuation
-//	@Tags		investments
+//	@Summary		Get an investment with its valuation
+//	@Description	Also opens investments shared into this space by someone else: the response is then `ownership: SHARED_IN`, valued with the caller's share and the space's base currency, with other participants' emails masked.
+//	@Tags			investments
 //	@Security	BearerAuth
 //	@Produce	json
 //	@Param		spaceId	path		string	true	"Space ID"
@@ -313,7 +314,8 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, err)
 		return
 	}
-	it, err := h.svc.Get(r.Context(), spaces.SpaceIDFromContext(r.Context()), id)
+	user, _ := auth.UserFromContext(r.Context())
+	it, err := h.svc.Get(r.Context(), spaces.SpaceIDFromContext(r.Context()), user.ID, id)
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
@@ -336,6 +338,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 //	@Failure		400		{object}	httpx.ErrorEnvelope
 //	@Failure		404		{object}	httpx.ErrorEnvelope
 //	@Failure		422		{object}	httpx.ErrorEnvelope	"AUTO_PRICE_NOT_SUPPORTED"
+//	@Failure	403	{object}	httpx.ErrorEnvelope	"OWNER_ONLY (investment shared into this space)"
 //	@Router			/spaces/{spaceId}/investments/{id} [patch]
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	sp, _ := spaces.SpaceFromContext(r.Context())
@@ -367,6 +370,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 //	@Param		id		path	string	true	"Investment ID"
 //	@Success	204
 //	@Failure	404	{object}	httpx.ErrorEnvelope
+//	@Failure	403	{object}	httpx.ErrorEnvelope	"OWNER_ONLY (investment shared into this space)"
 //	@Router		/spaces/{spaceId}/investments/{id} [delete]
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	id, err := investmentID(r)
@@ -395,6 +399,7 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 //	@Failure		422		{object}	httpx.ErrorEnvelope	"AUTO_PRICE_NOT_SUPPORTED / PRICE_MODE_NOT_AUTO / INSTRUMENT_NOT_LINKED"
 //	@Failure		429		{object}	httpx.ErrorEnvelope
 //	@Failure		502		{object}	httpx.ErrorEnvelope	"UPSTREAM_PROVIDER_ERROR"
+//	@Failure	403	{object}	httpx.ErrorEnvelope	"OWNER_ONLY (investment shared into this space)"
 //	@Router			/spaces/{spaceId}/investments/{id}/refresh-price [post]
 func (h *Handler) refreshPrice(w http.ResponseWriter, r *http.Request) {
 	id, err := investmentID(r)

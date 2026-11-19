@@ -181,17 +181,10 @@ func (s *Service) ListWith(ctx context.Context, spaceID uuid.UUID, assetType str
 	res := ListResult{Items: make([]Item, 0, len(invs))}
 	vals := make([]Valuation, 0, len(invs))
 	add := func(inv sqlc.Investment, mine func(sqlc.InvestmentParticipant) bool, ownership string) error {
-		rows := people[inv.ID]
-		var share *Share
-		if len(rows) > 0 {
-			share = shareOf(rows, mine)
-		}
-		it, err := s.value(inv, prices, cc, now, share, views(rows, viewer, false))
+		it, err := s.valueForViewer(inv, prices, cc, now, people[inv.ID], viewer, mine, ownership, realized[inv.ID])
 		if err != nil {
 			return err
 		}
-		it.Ownership = ownership
-		it.Realized = AllocateRealized(realized[inv.ID], share, cc.BaseCurrency)
 		res.Items = append(res.Items, it)
 		vals = append(vals, it.Valuation)
 		return nil
@@ -246,47 +239,75 @@ func (s *Service) participantsOf(ctx context.Context, invs []sqlc.Investment) (m
 	return out, nil
 }
 
-// Get returns one investment with its valuation.
-func (s *Service) Get(ctx context.Context, spaceID, id uuid.UUID) (Item, error) {
-	inv, err := s.q.GetInvestment(ctx, sqlc.GetInvestmentParams{ID: id, SpaceID: spaceID})
+// valueForViewer values one investment from a viewer's point of view: the owner
+// sees their own share, a shared-in participant theirs (mine picks the viewer's
+// participant row). It is the single place List and Get share, so they cannot drift.
+func (s *Service) valueForViewer(inv sqlc.Investment, prices map[uuid.UUID]MarketPrice, cc *currency.ConversionContext, now time.Time,
+	rows []sqlc.InvestmentParticipant, viewer uuid.UUID, mine func(sqlc.InvestmentParticipant) bool, ownership string, realized RealizedPL) (Item, error) {
+	var share *Share
+	if len(rows) > 0 {
+		share = shareOf(rows, mine)
+	}
+	it, err := s.value(inv, prices, cc, now, share, views(rows, viewer, false))
+	if err != nil {
+		return Item{}, err
+	}
+	it.Ownership = ownership
+	it.Realized = AllocateRealized(realized, share, cc.BaseCurrency)
+	return it, nil
+}
+
+// Get returns one investment with its valuation for the viewer. It resolves
+// investments the viewer owns through this space and ones shared into it (the
+// latter valued with the viewer's share and base currency).
+func (s *Service) Get(ctx context.Context, spaceID, viewer, id uuid.UUID) (Item, error) {
+	inv, err := s.q.GetInvestmentForViewer(ctx, sqlc.GetInvestmentForViewerParams{ID: id, SpaceID: spaceID, UserID: uuid.NullUUID{UUID: viewer, Valid: true}})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Item{}, errInvestmentNF
 	}
 	if err != nil {
 		return Item{}, err
 	}
-	return s.item(ctx, inv)
+	if inv.SpaceID == spaceID {
+		return s.item(ctx, inv, viewer)
+	}
+	part, err := s.q.GetViewerParticipation(ctx, sqlc.GetViewerParticipationParams{
+		InvestmentID: inv.ID, UserID: uuid.NullUUID{UUID: viewer, Valid: true}, AttachedSpaceID: uuid.NullUUID{UUID: spaceID, Valid: true},
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Item{}, errInvestmentNF
+	}
+	if err != nil {
+		return Item{}, err
+	}
+	return s.itemIn(ctx, inv, spaceID, viewer, func(p sqlc.InvestmentParticipant) bool { return p.ID == part.ID }, OwnershipSharedIn)
 }
 
 // item values one owned investment from its owner's point of view.
-func (s *Service) item(ctx context.Context, inv sqlc.Investment) (Item, error) {
-	cc, err := s.currency.BuildContext(ctx, inv.SpaceID)
+func (s *Service) item(ctx context.Context, inv sqlc.Investment, viewer uuid.UUID) (Item, error) {
+	return s.itemIn(ctx, inv, inv.SpaceID, viewer, func(p sqlc.InvestmentParticipant) bool { return p.Role == RoleOwner }, OwnershipOwner)
+}
+
+// itemIn values one investment with the conversion context of ccSpace (the viewer's space).
+func (s *Service) itemIn(ctx context.Context, inv sqlc.Investment, ccSpace, viewer uuid.UUID, mine func(sqlc.InvestmentParticipant) bool, ownership string) (Item, error) {
+	cc, err := s.currency.BuildContext(ctx, ccSpace)
 	if err != nil {
 		return Item{}, err
 	}
-	prices, err := s.marketPrices(ctx, []sqlc.Investment{inv})
+	one := []sqlc.Investment{inv}
+	prices, err := s.marketPrices(ctx, one)
 	if err != nil {
 		return Item{}, err
 	}
-	people, err := s.participantsOf(ctx, []sqlc.Investment{inv})
+	people, err := s.participantsOf(ctx, one)
 	if err != nil {
 		return Item{}, err
 	}
-	rows := people[inv.ID]
-	var share *Share
-	if len(rows) > 0 {
-		share = shareOf(rows, func(p sqlc.InvestmentParticipant) bool { return p.Role == RoleOwner })
-	}
-	it, err := s.value(inv, prices, cc, s.now(), share, views(rows, inv.CreatedByID, false))
+	realized, err := s.realized(ctx, cc, one)
 	if err != nil {
 		return Item{}, err
 	}
-	realized, err := s.realized(ctx, cc, []sqlc.Investment{inv})
-	if err != nil {
-		return Item{}, err
-	}
-	it.Realized = AllocateRealized(realized[inv.ID], share, cc.BaseCurrency)
-	return it, nil
+	return s.valueForViewer(inv, prices, cc, s.now(), people[inv.ID], viewer, mine, ownership, realized[inv.ID])
 }
 
 func toNullDecimal(d *decimal.Decimal) decimal.NullDecimal {
@@ -341,7 +362,7 @@ func (s *Service) Create(ctx context.Context, spaceID, userID uuid.UUID, spec Sp
 		}
 	}
 	s.firstPrice(ctx, inv)
-	return s.item(ctx, inv)
+	return s.item(ctx, inv, userID)
 }
 
 // fundInitialPosition records the BUY that paid for a new investment's initial
@@ -453,7 +474,7 @@ func (s *Service) firstPrice(ctx context.Context, inv sqlc.Investment) {
 func (s *Service) RefreshPrice(ctx context.Context, spaceID, userID, id uuid.UUID) (Item, error) {
 	inv, err := s.q.GetInvestment(ctx, sqlc.GetInvestmentParams{ID: id, SpaceID: spaceID})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Item{}, errInvestmentNF
+		return Item{}, missOrOwnerOnly(ctx, s.q, spaceID, userID, id)
 	}
 	if err != nil {
 		return Item{}, err
@@ -473,7 +494,7 @@ func (s *Service) RefreshPrice(ctx context.Context, spaceID, userID, id uuid.UUI
 	if err := s.market.RefreshPrice(ctx, inv.InstrumentID.UUID); err != nil {
 		return Item{}, err
 	}
-	return s.item(ctx, inv)
+	return s.item(ctx, inv, userID)
 }
 
 // Update applies a patch to an investment; assetType never changes.
@@ -481,10 +502,7 @@ func (s *Service) Update(ctx context.Context, space sqlc.Space, userID, id uuid.
 	var out sqlc.Investment
 	err := db.WithTx(ctx, s.db, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
-		cur, err := q.GetInvestmentForUpdate(ctx, sqlc.GetInvestmentForUpdateParams{ID: id, SpaceID: space.ID})
-		if errors.Is(err, pgx.ErrNoRows) {
-			return errInvestmentNF
-		}
+		cur, err := lockInvestment(ctx, q, space.ID, userID, id)
 		if err != nil {
 			return err
 		}
@@ -525,14 +543,14 @@ func (s *Service) Update(ctx context.Context, space sqlc.Space, userID, id uuid.
 		return Item{}, err
 	}
 	s.firstPrice(ctx, out)
-	return s.item(ctx, out)
+	return s.item(ctx, out, userID)
 }
 
 // Delete soft-deletes an investment.
 func (s *Service) Delete(ctx context.Context, spaceID, userID, id uuid.UUID) error {
 	return db.WithTx(ctx, s.db, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
-		inv, err := lockInvestment(ctx, q, spaceID, id)
+		inv, err := lockInvestment(ctx, q, spaceID, userID, id)
 		if err != nil {
 			return err
 		}

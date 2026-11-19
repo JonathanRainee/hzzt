@@ -203,12 +203,29 @@ func loadWallet(ctx context.Context, q *sqlc.Queries, spaceID, id uuid.UUID) (sq
 	return w, err
 }
 
-func lockInvestment(ctx context.Context, q *sqlc.Queries, spaceID, id uuid.UUID) (sqlc.Investment, error) {
+// lockInvestment locks an investment of the space for writing. A miss is 403
+// OWNER_ONLY when the investment is one shared into the space (visible to the
+// user but not theirs to change), otherwise 404.
+func lockInvestment(ctx context.Context, q *sqlc.Queries, spaceID, userID, id uuid.UUID) (sqlc.Investment, error) {
 	inv, err := q.GetInvestmentForUpdate(ctx, sqlc.GetInvestmentForUpdateParams{ID: id, SpaceID: spaceID})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return inv, errInvestmentNF
+		return inv, missOrOwnerOnly(ctx, q, spaceID, userID, id)
 	}
 	return inv, err
+}
+
+// missOrOwnerOnly explains why an owned lookup missed: OWNER_ONLY for a
+// shared-in investment the user can see, 404 for everything else (no existence leak).
+func missOrOwnerOnly(ctx context.Context, q *sqlc.Queries, spaceID, userID, id uuid.UUID) error {
+	_, err := q.GetInvestmentForViewer(ctx, sqlc.GetInvestmentForViewerParams{ID: id, SpaceID: spaceID, UserID: uuid.NullUUID{UUID: userID, Valid: true}})
+	switch {
+	case err == nil:
+		return ownerOnlyError()
+	case errors.Is(err, pgx.ErrNoRows):
+		return errInvestmentNF
+	default:
+		return err
+	}
 }
 
 func (s *Service) writePosition(ctx context.Context, q *sqlc.Queries, inv sqlc.Investment, pos Position, details []byte) error {
@@ -258,7 +275,7 @@ func (s *Service) Trade(ctx context.Context, spaceID, userID uuid.UUID, in Trade
 		if err != nil {
 			return err
 		}
-		inv, err := lockInvestment(ctx, q, spaceID, in.InvestmentID)
+		inv, err := lockInvestment(ctx, q, spaceID, userID, in.InvestmentID)
 		if err != nil {
 			return err
 		}
@@ -323,7 +340,7 @@ func (s *Service) UpdateTrade(ctx context.Context, spaceID, userID, id uuid.UUID
 		if !ok {
 			return ErrNotATrade
 		}
-		inv, err := lockInvestment(ctx, q, spaceID, old.InvestmentID.UUID)
+		inv, err := lockInvestment(ctx, q, spaceID, userID, old.InvestmentID.UUID)
 		if err != nil {
 			return err
 		}
