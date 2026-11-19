@@ -53,6 +53,8 @@ func (h *Handler) Mount(r chi.Router) {
 		const p = "/spaces/{spaceId}/investments"
 		r.Get(p, h.list)
 		r.Get(p+"/grouped", h.grouped)
+		r.Get(p+"/wrappers", h.wrappers)
+		r.Patch(p+"/wrappers/{assetType}/{wrapperKey}", h.setWrapperTarget)
 		r.Post(p, h.create)
 		r.Get(p+"/{id}", h.get)
 		r.Patch(p+"/{id}", h.update)

@@ -2738,6 +2738,136 @@ const docTemplate = `{
                 }
             }
         },
+        "/spaces/{spaceId}/investments/wrappers": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Per asset type: each wrapper (exchange, broker or platform) with its ` + "`" + `targetPct` + "`" + ` (null when none is set), its ` + "`" + `actualPct` + "`" + ` share of the asset type's base-currency value and ` + "`" + `driftPct` + "`" + ` (actual - target), plus the type's ` + "`" + `assignedPct` + "`" + ` and ` + "`" + `unallocatedPct` + "`" + ` (100 - assigned). A wrapper whose percentage is set but that no longer holds any investment is still listed (actualPct 0.00). The same fields are embedded in GET /investments/grouped.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "investments"
+                ],
+                "summary": "Planned and actual share of every wrapper",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "shared: also count investments other people shared into this space for the actual share",
+                        "name": "include",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/investments.AllocationsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/spaces/{spaceId}/investments/wrappers/{assetType}/{wrapperKey}": {
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Edits one wrapper at a time. ` + "`" + `wrapperKey` + "`" + ` is the wrapper lower-cased and URL-encoded (any casing and extra whitespace is accepted; ` + "`" + `_unassigned` + "`" + ` is rejected). The percentages set in an asset type may add up to at most 100.00; the rest stays unallocated (422 ALLOCATION_EXCEEDS_100, with ` + "`" + `details.assigned` + "`" + ` by the other wrappers and ` + "`" + `details.available` + "`" + `). ` + "`" + `targetPct: null` + "`" + ` clears the percentage. The wrapper must hold a live investment or already have a percentage (404 WRAPPER_NOT_FOUND). Any member of the space may edit; every write records who did it. The response carries the asset type's new assigned and unallocated percentage.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "investments"
+                ],
+                "summary": "Set or clear the percentage of one wrapper",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "CRYPTO, ID_STOCK, US_STOCK, MUTUAL_FUND or GLOBAL_ETF",
+                        "name": "assetType",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Wrapper, lower-cased and URL-encoded",
+                        "name": "wrapperKey",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Percentage",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/investments.SetTargetRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/investments.SetTargetResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "space or WRAPPER_NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "422": {
+                        "description": "ALLOCATION_EXCEEDS_100",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/spaces/{spaceId}/investments/{id}": {
             "get": {
                 "security": [
@@ -5908,6 +6038,27 @@ const docTemplate = `{
                 }
             }
         },
+        "investments.AllocationsResponse": {
+            "type": "object",
+            "properties": {
+                "categories": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/investments.CategoryAllocationDTO"
+                    }
+                },
+                "currency": {
+                    "type": "string",
+                    "example": "IDR"
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/currency.Warning"
+                    }
+                }
+            }
+        },
         "investments.BaseValues": {
             "type": "object",
             "properties": {
@@ -5931,6 +6082,39 @@ const docTemplate = `{
                 }
             }
         },
+        "investments.CategoryAllocationDTO": {
+            "type": "object",
+            "properties": {
+                "assetType": {
+                    "type": "string",
+                    "enum": [
+                        "CRYPTO",
+                        "ID_STOCK",
+                        "US_STOCK",
+                        "MUTUAL_FUND",
+                        "GLOBAL_ETF"
+                    ]
+                },
+                "assignedPct": {
+                    "type": "string",
+                    "example": "70.00"
+                },
+                "label": {
+                    "type": "string",
+                    "example": "Crypto"
+                },
+                "unallocatedPct": {
+                    "type": "string",
+                    "example": "30.00"
+                },
+                "wrappers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/investments.WrapperAllocationDTO"
+                    }
+                }
+            }
+        },
         "investments.CategoryGroupDTO": {
             "type": "object",
             "properties": {
@@ -5944,6 +6128,11 @@ const docTemplate = `{
                         "GLOBAL_ETF"
                     ]
                 },
+                "assignedPct": {
+                    "description": "AssignedPct is the sum of the wrapper percentages set in this asset type; UnallocatedPct = 100 - assigned.",
+                    "type": "string",
+                    "example": "70.00"
+                },
                 "cost": {
                     "type": "string",
                     "example": "700000"
@@ -5955,6 +6144,10 @@ const docTemplate = `{
                 "pctOfTotal": {
                     "type": "string",
                     "example": "60.00"
+                },
+                "unallocatedPct": {
+                    "type": "string",
+                    "example": "30.00"
                 },
                 "unrealizedPl": {
                     "type": "string",
@@ -5973,6 +6166,19 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/investments.WrapperGroupDTO"
                     }
+                }
+            }
+        },
+        "investments.CategoryTotalsDTO": {
+            "type": "object",
+            "properties": {
+                "assignedPct": {
+                    "type": "string",
+                    "example": "70.00"
+                },
+                "unallocatedPct": {
+                    "type": "string",
+                    "example": "30.00"
                 }
             }
         },
@@ -6458,6 +6664,62 @@ const docTemplate = `{
                 }
             }
         },
+        "investments.SetTargetRequest": {
+            "type": "object",
+            "properties": {
+                "targetPct": {
+                    "description": "TargetPct is a percentage from 0 to 100 with at most 2 decimals (\"40.00\"); null clears it.",
+                    "type": "string",
+                    "example": "40.00"
+                }
+            }
+        },
+        "investments.SetTargetResponse": {
+            "type": "object",
+            "properties": {
+                "actualPct": {
+                    "description": "ActualPct is the wrapper's share of its asset type's value; null when the asset type is worth 0.",
+                    "type": "string",
+                    "example": "33.33"
+                },
+                "assetType": {
+                    "type": "string",
+                    "enum": [
+                        "CRYPTO",
+                        "ID_STOCK",
+                        "US_STOCK",
+                        "MUTUAL_FUND",
+                        "GLOBAL_ETF"
+                    ]
+                },
+                "category": {
+                    "$ref": "#/definitions/investments.CategoryTotalsDTO"
+                },
+                "driftPct": {
+                    "description": "DriftPct is actualPct - targetPct; null unless both are known.",
+                    "type": "string",
+                    "example": "-6.67"
+                },
+                "key": {
+                    "type": "string",
+                    "example": "binance"
+                },
+                "label": {
+                    "type": "string",
+                    "example": "Binance"
+                },
+                "targetPct": {
+                    "description": "TargetPct is the percentage set for this wrapper; null when none is set (not 0).",
+                    "type": "string",
+                    "example": "40.00"
+                },
+                "wrapper": {
+                    "description": "Wrapper is the display name; null for the unassigned group.",
+                    "type": "string",
+                    "example": "Binance"
+                }
+            }
+        },
         "investments.ShareChangeDTO": {
             "type": "object",
             "properties": {
@@ -6638,6 +6900,49 @@ const docTemplate = `{
                 }
             }
         },
+        "investments.WrapperAllocationDTO": {
+            "type": "object",
+            "properties": {
+                "actualPct": {
+                    "description": "ActualPct is the wrapper's share of its asset type's value; null when the asset type is worth 0.",
+                    "type": "string",
+                    "example": "33.33"
+                },
+                "assetType": {
+                    "type": "string",
+                    "enum": [
+                        "CRYPTO",
+                        "ID_STOCK",
+                        "US_STOCK",
+                        "MUTUAL_FUND",
+                        "GLOBAL_ETF"
+                    ]
+                },
+                "driftPct": {
+                    "description": "DriftPct is actualPct - targetPct; null unless both are known.",
+                    "type": "string",
+                    "example": "-6.67"
+                },
+                "key": {
+                    "type": "string",
+                    "example": "binance"
+                },
+                "label": {
+                    "type": "string",
+                    "example": "Binance"
+                },
+                "targetPct": {
+                    "description": "TargetPct is the percentage set for this wrapper; null when none is set (not 0).",
+                    "type": "string",
+                    "example": "40.00"
+                },
+                "wrapper": {
+                    "description": "Wrapper is the display name; null for the unassigned group.",
+                    "type": "string",
+                    "example": "Binance"
+                }
+            }
+        },
         "investments.WrapperGroupDTO": {
             "type": "object",
             "properties": {
@@ -6647,6 +6952,10 @@ const docTemplate = `{
                 },
                 "count": {
                     "type": "integer"
+                },
+                "driftPct": {
+                    "type": "string",
+                    "example": "6.67"
                 },
                 "items": {
                     "type": "array",
@@ -6671,6 +6980,11 @@ const docTemplate = `{
                 "pctOfTotal": {
                     "type": "string",
                     "example": "40.00"
+                },
+                "targetPct": {
+                    "description": "TargetPct is the percentage set for this wrapper (null when none); DriftPct = pctOfCategory - targetPct.",
+                    "type": "string",
+                    "example": "60.00"
                 },
                 "unrealizedPl": {
                     "type": "string",
