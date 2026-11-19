@@ -310,6 +310,15 @@ type UserPreference struct {
 	UpdatedAt             time.Time  `json:"updated_at"`
 }
 
+type UserWalletPref struct {
+	UserID    uuid.UUID `json:"user_id"`
+	WalletID  uuid.UUID `json:"wallet_id"`
+	HideLogo  bool      `json:"hide_logo"`
+	HideName  bool      `json:"hide_name"`
+	HideType  bool      `json:"hide_type"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type Wallet struct {
 	ID          uuid.UUID       `json:"id"`
 	SpaceID     uuid.UUID       `json:"space_id"`

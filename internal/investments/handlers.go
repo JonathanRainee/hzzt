@@ -461,6 +461,13 @@ type ParticipantsResponse struct {
 	Items []ParticipantDTO `json:"items"`
 }
 
+// SetParticipantsResponse is the new participant list plus the investment as it is now, so the
+// client can update in place (isShared, participants, shared valuation) without refetching.
+type SetParticipantsResponse struct {
+	Items      []ParticipantDTO `json:"items"`
+	Investment InvestmentDTO    `json:"investment"`
+}
+
 // participants godoc
 //
 //	@Summary	List who an investment is shared with (owner only)
@@ -498,7 +505,7 @@ func (h *Handler) participants(w http.ResponseWriter, r *http.Request) {
 //	@Param			spaceId	path		string					true	"Space ID"
 //	@Param			id		path		string					true	"Investment ID"
 //	@Param			body	body		SetParticipantsRequest	true	"Participants"
-//	@Success		200		{object}	ParticipantsResponse
+//	@Success		200		{object}	SetParticipantsResponse
 //	@Failure		400		{object}	httpx.ErrorEnvelope
 //	@Failure		403		{object}	httpx.ErrorEnvelope	"OWNER_ONLY"
 //	@Failure		404		{object}	httpx.ErrorEnvelope
@@ -530,33 +537,55 @@ func (h *Handler) setParticipants(w http.ResponseWriter, r *http.Request) {
 		}
 		in = append(in, pi)
 	}
-	ps, err := h.svc.SetParticipants(r.Context(), spaces.SpaceIDFromContext(r.Context()), id, user, in)
+	spaceID := spaces.SpaceIDFromContext(r.Context())
+	ps, err := h.svc.SetParticipants(r.Context(), spaceID, id, user, in)
+	var it Item
+	if err == nil {
+		it, err = h.svc.Get(r.Context(), spaceID, user.ID, id)
+	}
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, ParticipantsResponse{Items: toParticipantDTOs(ps)})
+	writeJSON(w, http.StatusOK, SetParticipantsResponse{Items: toParticipantDTOs(ps), Investment: toDTO(it)})
 }
 
 // stopSharing godoc
 //
-//	@Summary	Stop sharing: 100% returns to the owner and everyone else is removed (owner only)
-//	@Tags		sharing
-//	@Security	BearerAuth
-//	@Param		spaceId	path	string	true	"Space ID"
-//	@Param		id		path	string	true	"Investment ID"
-//	@Success	204
+//	@Summary		Stop sharing: 100% returns to the owner and everyone else is removed (owner only)
+//	@Description	Answers 204. With `?return=investment` it answers 200 with the investment as it is now, so the client can update in place.
+//	@Tags			sharing
+//	@Security		BearerAuth
+//	@Produce		json
+//	@Param			spaceId	path	string	true	"Space ID"
+//	@Param			id		path	string	true	"Investment ID"
+//	@Param			return	query	string	false	"investment: answer 200 with the investment instead of 204"
+//	@Success		204
+//	@Success		200	{object}	InvestmentDTO
 //	@Failure	403	{object}	httpx.ErrorEnvelope	"OWNER_ONLY"
 //	@Failure	404	{object}	httpx.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/investments/{id}/participants [delete]
 func (h *Handler) stopSharing(w http.ResponseWriter, r *http.Request) {
 	user, _ := auth.UserFromContext(r.Context())
+	spaceID := spaces.SpaceIDFromContext(r.Context())
 	id, err := investmentID(r)
+	ret := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("return")))
+	if err == nil && ret != "" && ret != "investment" {
+		err = apperror.Validation("Validation failed", map[string]any{"return": "must be: investment"})
+	}
 	if err == nil {
-		err = h.svc.StopSharing(r.Context(), spaces.SpaceIDFromContext(r.Context()), id, user)
+		err = h.svc.StopSharing(r.Context(), spaceID, id, user)
+	}
+	var it Item
+	if err == nil && ret == "investment" {
+		it, err = h.svc.Get(r.Context(), spaceID, user.ID, id)
 	}
 	if err != nil {
 		httpx.WriteError(w, r, err)
+		return
+	}
+	if ret == "investment" {
+		writeJSON(w, http.StatusOK, toDTO(it))
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -645,6 +674,12 @@ type acceptRequest struct {
 	SpaceID uuid.UUID `json:"spaceId" validate:"required" swaggertype:"string"`
 }
 
+// AcceptResponse says where the accepted investment can be opened: GET /spaces/{spaceId}/investments/{investmentId}.
+type AcceptResponse struct {
+	SpaceID      uuid.UUID `json:"spaceId"`
+	InvestmentID uuid.UUID `json:"investmentId"`
+}
+
 func participantID(r *http.Request) (uuid.UUID, error) {
 	id, err := uuid.Parse(chi.URLParam(r, "participantId"))
 	if err != nil {
@@ -660,9 +695,10 @@ func participantID(r *http.Request) (uuid.UUID, error) {
 //	@Tags			sharing
 //	@Security		BearerAuth
 //	@Accept			json
-//	@Param			participantId	path	string			true	"Invitation (participant) ID"
-//	@Param			body			body	acceptRequest	true	"Space to attach it to"
-//	@Success		204
+//	@Param			participantId	path		string			true	"Invitation (participant) ID"
+//	@Produce		json
+//	@Param			body			body		acceptRequest	true	"Space to attach it to"
+//	@Success		200				{object}	AcceptResponse
 //	@Failure		400	{object}	httpx.ErrorEnvelope
 //	@Failure		404	{object}	httpx.ErrorEnvelope
 //	@Failure		409	{object}	httpx.ErrorEnvelope	"SHARE_INVITATION_ANSWERED"
@@ -674,14 +710,15 @@ func (h *Handler) acceptInvitation(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		req, err = httpx.DecodeAndValidate[acceptRequest](r)
 	}
+	var invID uuid.UUID
 	if err == nil {
-		err = h.svc.AcceptInvitation(r.Context(), user, id, req.SpaceID)
+		invID, err = h.svc.AcceptInvitation(r.Context(), user, id, req.SpaceID)
 	}
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusOK, AcceptResponse{SpaceID: req.SpaceID, InvestmentID: invID})
 }
 
 // declineInvitation godoc

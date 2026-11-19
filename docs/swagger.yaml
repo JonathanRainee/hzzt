@@ -610,6 +610,13 @@ definitions:
       requestId:
         type: string
     type: object
+  investments.AcceptResponse:
+    properties:
+      investmentId:
+        type: string
+      spaceId:
+        type: string
+    type: object
   investments.AllocationsResponse:
     properties:
       categories:
@@ -1055,6 +1062,15 @@ definitions:
         type: array
     required:
     - participants
+    type: object
+  investments.SetParticipantsResponse:
+    properties:
+      investment:
+        $ref: '#/definitions/investments.InvestmentDTO'
+      items:
+        items:
+          $ref: '#/definitions/investments.ParticipantDTO'
+        type: array
     type: object
   investments.SetTargetRequest:
     properties:
@@ -2154,6 +2170,15 @@ definitions:
       templateId:
         type: string
     type: object
+  wallets.DisplayPrefs:
+    properties:
+      hideLogo:
+        type: boolean
+      hideName:
+        type: boolean
+      hideType:
+        type: boolean
+    type: object
   wallets.ListResponse:
     properties:
       items:
@@ -2162,6 +2187,15 @@ definitions:
         type: array
       total:
         $ref: '#/definitions/currency.AggregateResult'
+    type: object
+  wallets.PrefsRequest:
+    properties:
+      hideLogo:
+        type: boolean
+      hideName:
+        type: boolean
+      hideType:
+        type: boolean
     type: object
   wallets.Preset:
     properties:
@@ -2207,6 +2241,12 @@ definitions:
       currency:
         example: IDR
         type: string
+      displayPrefs:
+        allOf:
+        - $ref: '#/definitions/wallets.DisplayPrefs'
+        description: |-
+          DisplayPrefs are the calling user's own display choices for this wallet (all false by default);
+          other members never see them.
       icon:
         type: string
       id:
@@ -3028,9 +3068,13 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/investments.acceptRequest'
+      produces:
+      - application/json
       responses:
-        "204":
-          description: No Content
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/investments.AcceptResponse'
         "400":
           description: Bad Request
           schema:
@@ -4216,6 +4260,8 @@ paths:
       - investments
   /spaces/{spaceId}/investments/{id}/participants:
     delete:
+      description: Answers 204. With `?return=investment` it answers 200 with the
+        investment as it is now, so the client can update in place.
       parameters:
       - description: Space ID
         in: path
@@ -4227,7 +4273,17 @@ paths:
         name: id
         required: true
         type: string
+      - description: 'investment: answer 200 with the investment instead of 204'
+        in: query
+        name: return
+        type: string
+      produces:
+      - application/json
       responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/investments.InvestmentDTO'
         "204":
           description: No Content
         "403":
@@ -4311,7 +4367,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/investments.ParticipantsResponse'
+            $ref: '#/definitions/investments.SetParticipantsResponse'
         "400":
           description: Bad Request
           schema:
@@ -5674,6 +5730,51 @@ paths:
       security:
       - BearerAuth: []
       summary: Set the wallet balance
+      tags:
+      - wallets
+  /spaces/{spaceId}/wallets/{id}/display-prefs:
+    patch:
+      consumes:
+      - application/json
+      description: Per user and synced across devices; other members of the space
+        never see them. Fields that are not sent keep their value; a result with nothing
+        hidden is the default and is not stored. Also returned as `displayPrefs` by
+        GET /wallets and GET /wallets/{id}.
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: Wallet ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Preferences to change
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/wallets.PrefsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/wallets.DisplayPrefs'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: space or WALLET_NOT_FOUND
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Set my display preferences of a wallet (hide logo, name, type)
       tags:
       - wallets
   /spaces/{spaceId}/wallets/{id}/top-up:

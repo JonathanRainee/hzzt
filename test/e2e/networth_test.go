@@ -171,7 +171,7 @@ func TestNetWorthCountsSharedInvestmentsByShare(t *testing.T) {
 	assert.True(t, dec("500.01").Equal(dec(s.networth(owner, sid).Investments.Value)), "owner space: 50%")
 	assert.True(t, dec("0").Equal(dec(s.networth(bob, spaceIDOf(bob)).Investments.Value)))
 
-	require.Equal(t, http.StatusNoContent, s.acceptShare(bob, byName(out.Items, "Bob").ID, spaceIDOf(bob)).Status)
+	require.Equal(t, http.StatusOK, s.acceptShare(bob, byName(out.Items, "Bob").ID, spaceIDOf(bob)).Status)
 	nw := s.networth(bob, spaceIDOf(bob))
 	assert.True(t, dec("300").Equal(dec(nw.Investments.Value)), "the attached space counts 30% after acceptance")
 	assert.True(t, dec("300").Equal(dec(nw.NetWorth)))
