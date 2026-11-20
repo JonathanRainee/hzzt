@@ -56,3 +56,19 @@ func TestJSONRoundTripIsString(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(`{"amount":"0.1"}`), &out))
 	assert.Equal(t, "0.1", out.Amount.String())
 }
+
+func TestPctAlwaysHasTwoDecimals(t *testing.T) {
+	for in, want := range map[string]string{
+		"0": "0.00", "40": "40.00", "33.333333": "33.33", "66.666666": "66.67", "12.345": "12.35", "-12.345": "-12.35", "100": "100.00",
+	} {
+		b, err := json.Marshal(NewPct(decimal.RequireFromString(in)))
+		require.NoError(t, err)
+		assert.Equal(t, `"`+want+`"`, string(b), in)
+	}
+	var null *Pct
+	b, _ := json.Marshal(null)
+	assert.Equal(t, "null", string(b))
+	var back Pct
+	require.NoError(t, json.Unmarshal([]byte(`"12.50"`), &back))
+	assert.True(t, back.Equal(decimal.RequireFromString("12.5")))
+}

@@ -14,6 +14,7 @@ import (
 
 	"github.com/JonathanRainee/hzzt/internal/auth"
 	"github.com/JonathanRainee/hzzt/internal/currency"
+	"github.com/JonathanRainee/hzzt/internal/platform/allocation"
 	"github.com/JonathanRainee/hzzt/internal/platform/apperror"
 	"github.com/JonathanRainee/hzzt/internal/platform/httpx"
 	"github.com/JonathanRainee/hzzt/internal/platform/money"
@@ -73,7 +74,12 @@ type WalletDTO struct {
 	IsFavorite   bool            `json:"isFavorite"`
 	SortOrder    int             `json:"sortOrder"`
 	CardStyle    CardStyle       `json:"cardStyle"`
-	CreatedAt    time.Time       `json:"createdAt"`
+	// BaseBalance and PctOfTotal are set in the list response only: the balance in the space's
+	// base currency, and its share of the total (percentages add up to exactly 100.00). Null
+	// without an FX rate, or when the total is 0.
+	BaseBalance *decimal.Decimal `json:"baseBalance" swaggertype:"string" example:"2150000"`
+	PctOfTotal  *money.Pct       `json:"pctOfTotal" swaggertype:"string" example:"33.33"`
+	CreatedAt   time.Time        `json:"createdAt"`
 }
 
 // ToDTO converts a wallet.
@@ -195,7 +201,7 @@ func walletID(r *http.Request) (uuid.UUID, error) {
 // list godoc
 //
 //	@Summary		List wallets with the converted total
-//	@Description	Favorites first, then sortOrder. `total` is converted to the space base currency; wallets without a usable FX rate are left out and reported in `total.warnings`.
+//	@Description	Favorites first, then sortOrder. `total` is converted to the space base currency; wallets without a usable FX rate are left out and reported in `total.warnings`. Each item also carries `baseBalance` and `pctOfTotal` (percent of the total, 2 decimals, adding up to exactly 100.00; null without an FX rate) for pie charts.
 //	@Tags			wallets
 //	@Security		BearerAuth
 //	@Produce		json
@@ -210,8 +216,18 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	items := make([]WalletDTO, 0, len(res.Wallets))
-	for _, x := range res.Wallets {
-		items = append(items, ToDTO(x))
+	var idx []int
+	var vals []decimal.Decimal
+	for i, x := range res.Wallets {
+		d := ToDTO(x)
+		if v, ok := res.BaseBalance[x.ID]; ok {
+			d.BaseBalance = &v
+			idx, vals = append(idx, i), append(vals, v)
+		}
+		items = append(items, d)
+	}
+	for k, p := range allocation.SplitPct(vals) {
+		items[idx[k]].PctOfTotal = money.PctPtr(p)
 	}
 	writeJSON(w, http.StatusOK, ListResponse{Items: items, Total: res.Total})
 }

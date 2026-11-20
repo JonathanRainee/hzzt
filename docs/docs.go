@@ -2680,6 +2680,64 @@ const docTemplate = `{
                 }
             }
         },
+        "/spaces/{spaceId}/investments/grouped": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Groups the same valued list as GET /investments by asset type, then by wrapper (exchange, broker or platform; compared case- and whitespace-insensitively; none is ` + "`" + `wrapper: null` + "`" + `, key ` + "`" + `_unassigned` + "`" + `). Sums use the viewer's base-currency values, so they equal ` + "`" + `summary` + "`" + ` of the flat list; items without a usable FX rate are listed but left out of every sum and reported in ` + "`" + `warnings` + "`" + `. ` + "`" + `pctOfCategory` + "`" + ` and ` + "`" + `pctOfTotal` + "`" + ` are percentages with 2 decimals whose slices add up to exactly 100.00 (null when the denominator is 0), so pie data is ` + "`" + `categories[].pctOfTotal` + "`" + ` and ` + "`" + `wrappers[].pctOfCategory` + "`" + `. ` + "`" + `items=false` + "`" + ` leaves the items out.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "investments"
+                ],
+                "summary": "Investments grouped by asset type and wrapper",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "shared: also group investments other people shared into this space (valued for my share)",
+                        "name": "include",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "false: omit the items of each wrapper (default true)",
+                        "name": "items",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/investments.GroupedResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/spaces/{spaceId}/investments/{id}": {
             "get": {
                 "security": [
@@ -4467,7 +4525,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Favorites first, then sortOrder. ` + "`" + `total` + "`" + ` is converted to the space base currency; wallets without a usable FX rate are left out and reported in ` + "`" + `total.warnings` + "`" + `.",
+                "description": "Favorites first, then sortOrder. ` + "`" + `total` + "`" + ` is converted to the space base currency; wallets without a usable FX rate are left out and reported in ` + "`" + `total.warnings` + "`" + `. Each item also carries ` + "`" + `baseBalance` + "`" + ` and ` + "`" + `pctOfTotal` + "`" + ` (percent of the total, 2 decimals, adding up to exactly 100.00; null without an FX rate) for pie charts.",
                 "produces": [
                     "application/json"
                 ],
@@ -5873,6 +5931,51 @@ const docTemplate = `{
                 }
             }
         },
+        "investments.CategoryGroupDTO": {
+            "type": "object",
+            "properties": {
+                "assetType": {
+                    "type": "string",
+                    "enum": [
+                        "CRYPTO",
+                        "ID_STOCK",
+                        "US_STOCK",
+                        "MUTUAL_FUND",
+                        "GLOBAL_ETF"
+                    ]
+                },
+                "cost": {
+                    "type": "string",
+                    "example": "700000"
+                },
+                "label": {
+                    "type": "string",
+                    "example": "Crypto"
+                },
+                "pctOfTotal": {
+                    "type": "string",
+                    "example": "60.00"
+                },
+                "unrealizedPl": {
+                    "type": "string",
+                    "example": "200000"
+                },
+                "unrealizedPlPct": {
+                    "type": "string",
+                    "example": "28.57"
+                },
+                "value": {
+                    "type": "string",
+                    "example": "900000"
+                },
+                "wrappers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/investments.WrapperGroupDTO"
+                    }
+                }
+            }
+        },
         "investments.CreateRequestDoc": {
             "type": "object",
             "properties": {
@@ -5942,6 +6045,11 @@ const docTemplate = `{
                 },
                 "symbol": {
                     "type": "string"
+                },
+                "wrapper": {
+                    "description": "Wrapper is the exchange, broker or platform holding the position (1 to 60 characters). When omitted it is derived from details (exchangeOrWallet, broker or platform).",
+                    "type": "string",
+                    "example": "Binance"
                 }
             }
         },
@@ -5986,6 +6094,30 @@ const docTemplate = `{
                 },
                 "walletId": {
                     "type": "string"
+                }
+            }
+        },
+        "investments.GroupedResponse": {
+            "type": "object",
+            "properties": {
+                "categories": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/investments.CategoryGroupDTO"
+                    }
+                },
+                "currency": {
+                    "type": "string",
+                    "example": "IDR"
+                },
+                "total": {
+                    "$ref": "#/definitions/investments.TotalsDTO"
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/currency.Warning"
+                    }
                 }
             }
         },
@@ -6059,6 +6191,14 @@ const docTemplate = `{
                         "$ref": "#/definitions/investments.ParticipantDTO"
                     }
                 },
+                "pctOfTotal": {
+                    "description": "PctOfTotal is this investment's share of the portfolio's base-currency value (only in the list response; null without a base value).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/money.Pct"
+                        }
+                    ]
+                },
                 "priceMode": {
                     "type": "string",
                     "enum": [
@@ -6102,6 +6242,11 @@ const docTemplate = `{
                             "$ref": "#/definitions/investments.Valuation"
                         }
                     ]
+                },
+                "wrapper": {
+                    "description": "Wrapper is the exchange, broker or platform the position is held on; null when unknown.",
+                    "type": "string",
+                    "example": "Binance"
                 }
             }
         },
@@ -6271,6 +6416,10 @@ const docTemplate = `{
                 },
                 "symbol": {
                     "type": "string"
+                },
+                "wrapper": {
+                    "description": "Wrapper sets the exchange, broker or platform holding the position; null re-derives it from details.",
+                    "type": "string"
                 }
             }
         },
@@ -6354,6 +6503,27 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/currency.Warning"
                     }
+                }
+            }
+        },
+        "investments.TotalsDTO": {
+            "type": "object",
+            "properties": {
+                "cost": {
+                    "type": "string",
+                    "example": "700000"
+                },
+                "unrealizedPl": {
+                    "type": "string",
+                    "example": "200000"
+                },
+                "unrealizedPlPct": {
+                    "type": "string",
+                    "example": "28.57"
+                },
+                "value": {
+                    "type": "string",
+                    "example": "900000"
                 }
             }
         },
@@ -6465,6 +6635,59 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/currency.Warning"
                     }
+                }
+            }
+        },
+        "investments.WrapperGroupDTO": {
+            "type": "object",
+            "properties": {
+                "cost": {
+                    "type": "string",
+                    "example": "700000"
+                },
+                "count": {
+                    "type": "integer"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/investments.InvestmentDTO"
+                    }
+                },
+                "key": {
+                    "description": "Key is the lower-cased, whitespace-normalised wrapper (\"_unassigned\" for none).",
+                    "type": "string",
+                    "example": "binance"
+                },
+                "label": {
+                    "description": "Label is the wrapper, or \"Unassigned\".",
+                    "type": "string",
+                    "example": "Binance"
+                },
+                "pctOfCategory": {
+                    "type": "string",
+                    "example": "66.67"
+                },
+                "pctOfTotal": {
+                    "type": "string",
+                    "example": "40.00"
+                },
+                "unrealizedPl": {
+                    "type": "string",
+                    "example": "200000"
+                },
+                "unrealizedPlPct": {
+                    "type": "string",
+                    "example": "28.57"
+                },
+                "value": {
+                    "type": "string",
+                    "example": "900000"
+                },
+                "wrapper": {
+                    "description": "Wrapper is the display name; null for investments without a wrapper.",
+                    "type": "string",
+                    "example": "Binance"
                 }
             }
         },
@@ -6741,6 +6964,14 @@ const docTemplate = `{
                 "symbol": {
                     "type": "string",
                     "example": "BTC"
+                }
+            }
+        },
+        "money.Pct": {
+            "type": "object",
+            "properties": {
+                "decimal.Decimal": {
+                    "type": "number"
                 }
             }
         },
@@ -7555,6 +7786,11 @@ const docTemplate = `{
                     "type": "string",
                     "example": "134.26"
                 },
+                "baseBalance": {
+                    "description": "BaseBalance and PctOfTotal are set in the list response only: the balance in the space's\nbase currency, and its share of the total (percentages add up to exactly 100.00). Null\nwithout an FX rate, or when the total is 0.",
+                    "type": "string",
+                    "example": "2150000"
+                },
                 "cardStyle": {
                     "$ref": "#/definitions/wallets.CardStyle"
                 },
@@ -7579,6 +7815,10 @@ const docTemplate = `{
                 },
                 "overReserved": {
                     "type": "boolean"
+                },
+                "pctOfTotal": {
+                    "type": "string",
+                    "example": "33.33"
                 },
                 "reserved": {
                     "description": "Reserved is the part of the balance earmarked for goals; Available = balance − reserved\nand may be negative when expenses pushed the wallet below its reserves (OverReserved).",

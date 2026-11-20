@@ -213,7 +213,7 @@ func sharedInRow(r sqlc.ListSharedInInvestmentsRow) sqlc.Investment {
 		ManualPrice: r.ManualPrice, Fees: r.Fees, ManualCurrentValue: r.ManualCurrentValue, PurchaseDate: r.PurchaseDate,
 		EstimatedAnnualChangePct: r.EstimatedAnnualChangePct, ManualFxRate: r.ManualFxRate, Details: r.Details,
 		InstrumentID: r.InstrumentID, IsShared: r.IsShared, CreatedByID: r.CreatedByID, CreatedAt: r.CreatedAt,
-		UpdatedAt: r.UpdatedAt, DeletedAt: r.DeletedAt,
+		UpdatedAt: r.UpdatedAt, DeletedAt: r.DeletedAt, Wrapper: r.Wrapper,
 	}
 }
 
@@ -335,7 +335,7 @@ func (s *Service) Create(ctx context.Context, spaceID, userID uuid.UUID, spec Sp
 			ManualPrice: spec.ManualPrice, Fees: spec.Fees, ManualCurrentValue: toNullDecimal(spec.ManualCurrentValue),
 			PurchaseDate: spec.PurchaseDate, EstimatedAnnualChangePct: spec.EstimatedAnnualChangePct,
 			ManualFxRate: toNullDecimal(spec.ManualFxRate), Details: details, CreatedByID: userID,
-			InstrumentID: instrument,
+			InstrumentID: instrument, Wrapper: spec.Wrapper,
 		})
 	}
 
@@ -526,7 +526,7 @@ func (s *Service) Update(ctx context.Context, space sqlc.Space, userID, id uuid.
 			QuoteCurrency: spec.QuoteCurrency, Quantity: spec.Quantity, AvgBuyPrice: spec.AvgBuyPrice,
 			ManualPrice: spec.ManualPrice, Fees: spec.Fees, ManualCurrentValue: toNullDecimal(spec.ManualCurrentValue),
 			PurchaseDate: spec.PurchaseDate, EstimatedAnnualChangePct: spec.EstimatedAnnualChangePct,
-			ManualFxRate: toNullDecimal(spec.ManualFxRate), Details: details,
+			ManualFxRate: toNullDecimal(spec.ManualFxRate), Details: details, Wrapper: spec.Wrapper,
 		})
 		if err != nil {
 			return err
