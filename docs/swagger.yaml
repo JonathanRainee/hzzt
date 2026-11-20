@@ -381,7 +381,7 @@ definitions:
         type: string
       pct:
         description: a percentage of the total
-        example: "42.5"
+        example: "42.50"
         type: string
     type: object
   dashboard.ChangeDTO:
@@ -1033,7 +1033,9 @@ definitions:
   investments.RealizedPLDTO:
     properties:
       amount:
-        example: "5990"
+        description: Amount is in the investment's quote currency, Base in the space's
+          base currency (null without an FX rate).
+        example: "5990.00"
         type: string
       base:
         type: string
@@ -1344,8 +1346,9 @@ definitions:
         example: IDR
         type: string
       currentValue:
-        description: a liability's outstanding amount
-        example: "500"
+        description: 'in the asset''s currency (IDR and JPY: no decimals, others 2);
+          a liability''s outstanding amount'
+        example: "500.00"
         type: string
       dueDate:
         example: "2026-12-31"
@@ -1504,6 +1507,95 @@ definitions:
       decimal.Decimal:
         type: number
     type: object
+  networth.AssetLineDTO:
+    properties:
+      baseValue:
+        type: string
+      currency:
+        example: IDR
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      pctOfTotal:
+        type: string
+      value:
+        description: Value is in the asset's currency, BaseValue in the space's base
+          currency (null without an FX rate).
+        type: string
+    type: object
+  networth.AssetSectionDTO:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/networth.AssetLineDTO'
+        type: array
+      total:
+        type: string
+    type: object
+  networth.AssetSummaryDTO:
+    properties:
+      asOf:
+        type: string
+      cash:
+        $ref: '#/definitions/networth.CashSectionDTO'
+      currency:
+        example: IDR
+        type: string
+      fixedAssets:
+        $ref: '#/definitions/networth.AssetSectionDTO'
+      investments:
+        $ref: '#/definitions/networth.InvestmentsSectionDTO'
+      liabilities:
+        $ref: '#/definitions/networth.AssetSectionDTO'
+      netWorth:
+        type: string
+      receivables:
+        $ref: '#/definitions/networth.AssetSectionDTO'
+      trackingMode:
+        enum:
+        - FULL_NET_WORTH
+        - CASH_ONLY
+        type: string
+      warnings:
+        items:
+          $ref: '#/definitions/currency.Warning'
+        type: array
+    type: object
+  networth.CashSectionDTO:
+    properties:
+      pctOfNetWorth:
+        type: string
+      total:
+        type: string
+      wallets:
+        items:
+          $ref: '#/definitions/networth.WalletLineDTO'
+        type: array
+    type: object
+  networth.CategoryLineDTO:
+    properties:
+      assetType:
+        enum:
+        - CRYPTO
+        - ID_STOCK
+        - US_STOCK
+        - MUTUAL_FUND
+        - GLOBAL_ETF
+        type: string
+      label:
+        example: Crypto
+        type: string
+      pctOfTotal:
+        type: string
+      unrealizedPl:
+        type: string
+      unrealizedPlPct:
+        type: string
+      value:
+        type: string
+    type: object
   networth.HistoryDTO:
     properties:
       changePct:
@@ -1535,6 +1627,21 @@ definitions:
         description: a percentage; null when the cost is 0
         type: string
       value:
+        type: string
+    type: object
+  networth.InvestmentsSectionDTO:
+    properties:
+      categories:
+        items:
+          $ref: '#/definitions/networth.CategoryLineDTO'
+        type: array
+      cost:
+        type: string
+      total:
+        type: string
+      unrealizedPl:
+        type: string
+      unrealizedPlPct:
         type: string
     type: object
   networth.PointDTO:
@@ -1576,6 +1683,33 @@ definitions:
         items:
           $ref: '#/definitions/currency.Warning'
         type: array
+    type: object
+  networth.WalletLineDTO:
+    properties:
+      balance:
+        description: Balance is in the wallet's currency, BaseBalance in the space's
+          base currency (null without an FX rate).
+        type: string
+      baseBalance:
+        type: string
+      currency:
+        example: USD
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      pctOfTotal:
+        description: PctOfTotal is the wallet's share of the cash total; the shares
+          add up to exactly 100.00.
+        type: string
+      type:
+        enum:
+        - BANK
+        - E_WALLET
+        - CASH
+        - OTHER
+        type: string
     type: object
   server.StatusResponse:
     properties:
@@ -2055,6 +2189,8 @@ definitions:
         example: "34.26"
         type: string
       balance:
+        description: 'Balance, Reserved and Available are in the wallet''s currency:
+          IDR and JPY show no decimals, others 2.'
         example: "134.26"
         type: string
       baseBalance:
@@ -2088,7 +2224,7 @@ definitions:
         description: |-
           Reserved is the part of the balance earmarked for goals; Available = balance − reserved
           and may be negative when expenses pushed the wallet below its reserves (OverReserved).
-        example: "100"
+        example: "100.00"
         type: string
       sortOrder:
         type: integer
@@ -3125,6 +3261,40 @@ paths:
       summary: Mark the space as my active space
       tags:
       - spaces
+  /spaces/{spaceId}/assets/summary:
+    get:
+      description: Cash per wallet (with its base-currency balance and share of the
+        cash total), investments per asset type (value, unrealised profit/loss, share
+        of the investments total), and fixed assets, money owed (receivables) and
+        debts (liabilities) with their items, all converted to the space base currency
+        with one FX snapshot, so the totals equal GET /net-worth/summary. Investments
+        count my share, shared-in ones included. Anything without a usable FX rate
+        has a null base value, is left out of the totals and reported in `warnings`.
+        Amounts show no decimals for IDR and JPY and 2 for every other currency; percentages
+        have 2 decimals and the slices of a section add up to exactly 100.00. In CASH_ONLY
+        tracking mode only `cash` is returned.
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/networth.AssetSummaryDTO'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: The asset page in one response
+      tags:
+      - net-worth
   /spaces/{spaceId}/categories:
     get:
       description: 'With includeStats=true each category carries `stats` for the period

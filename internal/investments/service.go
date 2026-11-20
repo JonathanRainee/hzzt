@@ -254,6 +254,7 @@ func (s *Service) valueForViewer(inv sqlc.Investment, prices map[uuid.UUID]Marke
 	}
 	it.Ownership = ownership
 	it.Realized = AllocateRealized(realized, share, cc.BaseCurrency)
+	it.Realized.BaseCurrency = strings.TrimSpace(cc.BaseCurrency)
 	return it, nil
 }
 
@@ -401,7 +402,9 @@ func (s *Service) fundInitialPosition(ctx context.Context, tx pgx.Tx, q *sqlc.Qu
 type RealizedPL struct {
 	Amount decimal.Decimal  // in the investment's quote currency
 	Base   *decimal.Decimal // converted to the space base currency; nil without an FX rate
-	Sells  int
+	// BaseCurrency is the currency of Base.
+	BaseCurrency string
+	Sells        int
 }
 
 // realized totals each investment's realized profit/loss, scaled to the viewer's
