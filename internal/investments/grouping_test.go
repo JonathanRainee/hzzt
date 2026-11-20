@@ -16,7 +16,6 @@ func wrapped(assetType, quote, qty, price string, wrapper *string, updated time.
 	return Item{Investment: i, Valuation: Value(i, nil, ctx("USD", true, usdIDR, nil), now)}
 }
 
-
 func TestGroupMergesWrappersCaseAndWhitespaceInsensitively(t *testing.T) {
 	t0 := now
 	items := []Item{

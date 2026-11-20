@@ -21,17 +21,21 @@ type groupedBody struct {
 		UnrealizedPLPct           *string `json:"unrealizedPlPct"`
 	} `json:"total"`
 	Categories []struct {
-		AssetType  string  `json:"assetType"`
-		Label      string  `json:"label"`
-		Value      string  `json:"value"`
-		PctOfTotal *string `json:"pctOfTotal"`
-		Wrappers   []struct {
+		AssetType      string  `json:"assetType"`
+		Label          string  `json:"label"`
+		Value          string  `json:"value"`
+		PctOfTotal     *string `json:"pctOfTotal"`
+		AssignedPct    string  `json:"assignedPct"`
+		UnallocatedPct string  `json:"unallocatedPct"`
+		Wrappers       []struct {
 			Wrapper       *string          `json:"wrapper"`
 			Label         string           `json:"label"`
 			Key           string           `json:"key"`
 			Value         string           `json:"value"`
 			PctOfCategory *string          `json:"pctOfCategory"`
 			PctOfTotal    *string          `json:"pctOfTotal"`
+			TargetPct     *string          `json:"targetPct"`
+			DriftPct      *string          `json:"driftPct"`
 			Count         int              `json:"count"`
 			Items         []investmentBody `json:"items"`
 		} `json:"wrappers"`

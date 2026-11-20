@@ -109,6 +109,17 @@ type InvestmentShareChange struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+type InvestmentWrapperAllocation struct {
+	ID          uuid.UUID `json:"id"`
+	SpaceID     uuid.UUID `json:"space_id"`
+	AssetType   string    `json:"asset_type"`
+	WrapperKey  string    `json:"wrapper_key"`
+	Label       string    `json:"label"`
+	PctBps      int32     `json:"pct_bps"`
+	UpdatedByID uuid.UUID `json:"updated_by_id"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 type JobRun struct {
 	ID             uuid.UUID `json:"id"`
 	Name           string    `json:"name"`

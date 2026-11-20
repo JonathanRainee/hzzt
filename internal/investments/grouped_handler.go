@@ -35,10 +35,13 @@ type WrapperGroupDTO struct {
 	// Key is the lower-cased, whitespace-normalised wrapper ("_unassigned" for none).
 	Key string `json:"key" example:"binance"`
 	TotalsDTO
-	PctOfCategory *money.Pct      `json:"pctOfCategory" swaggertype:"string" example:"66.67"`
-	PctOfTotal    *money.Pct      `json:"pctOfTotal" swaggertype:"string" example:"40.00"`
-	Count         int             `json:"count"`
-	Items         []InvestmentDTO `json:"items,omitempty"`
+	PctOfCategory *money.Pct `json:"pctOfCategory" swaggertype:"string" example:"66.67"`
+	PctOfTotal    *money.Pct `json:"pctOfTotal" swaggertype:"string" example:"40.00"`
+	// TargetPct is the percentage set for this wrapper (null when none); DriftPct = pctOfCategory - targetPct.
+	TargetPct *money.Pct      `json:"targetPct" swaggertype:"string" example:"60.00"`
+	DriftPct  *money.Pct      `json:"driftPct" swaggertype:"string" example:"6.67"`
+	Count     int             `json:"count"`
+	Items     []InvestmentDTO `json:"items,omitempty"`
 }
 
 // CategoryGroupDTO is one asset type.
@@ -46,8 +49,11 @@ type CategoryGroupDTO struct {
 	AssetType string `json:"assetType" enums:"CRYPTO,ID_STOCK,US_STOCK,MUTUAL_FUND,GLOBAL_ETF"`
 	Label     string `json:"label" example:"Crypto"`
 	TotalsDTO
-	PctOfTotal *money.Pct        `json:"pctOfTotal" swaggertype:"string" example:"60.00"`
-	Wrappers   []WrapperGroupDTO `json:"wrappers"`
+	PctOfTotal *money.Pct `json:"pctOfTotal" swaggertype:"string" example:"60.00"`
+	// AssignedPct is the sum of the wrapper percentages set in this asset type; UnallocatedPct = 100 - assigned.
+	AssignedPct    money.Pct         `json:"assignedPct" swaggertype:"string" example:"70.00"`
+	UnallocatedPct money.Pct         `json:"unallocatedPct" swaggertype:"string" example:"30.00"`
+	Wrappers       []WrapperGroupDTO `json:"wrappers"`
 }
 
 // GroupedResponse is the portfolio grouped by asset type, then wrapper.
@@ -94,17 +100,28 @@ func (h *Handler) grouped(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toGroupedResponse(Group(res.Summary.Currency, res.Items), withItems))
+	g := Group(res.Summary.Currency, res.Items)
+	rows, err := h.svc.q.ListWrapperAllocations(r.Context(), spaces.SpaceIDFromContext(r.Context()))
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toGroupedResponse(g, BuildAllocations(g, rows), withItems))
 }
 
-func toGroupedResponse(g Grouped, withItems bool) GroupedResponse {
+func toGroupedResponse(g Grouped, al Allocations, withItems bool) GroupedResponse {
 	out := GroupedResponse{Currency: g.Currency, Total: toTotalsDTO(g.Total), Categories: make([]CategoryGroupDTO, 0, len(g.Categories)), Warnings: g.Warnings}
 	for _, c := range g.Categories {
 		cd := CategoryGroupDTO{AssetType: c.AssetType, Label: c.Label, TotalsDTO: toTotalsDTO(c.Totals),
 			PctOfTotal: money.PctPtr(c.PctOfTotal), Wrappers: make([]WrapperGroupDTO, 0, len(c.Wrappers))}
+		cat := al.category(c.AssetType)
+		cd.AssignedPct, cd.UnallocatedPct = money.NewPct(cat.AssignedPct), money.NewPct(cat.UnallocatedPct)
 		for _, wg := range c.Wrappers {
 			wd := WrapperGroupDTO{Wrapper: wg.Wrapper, Label: groupLabel(wg), Key: wg.Key, TotalsDTO: toTotalsDTO(wg.Totals),
 				PctOfCategory: money.PctPtr(wg.PctOfCategory), PctOfTotal: money.PctPtr(wg.PctOfTotal), Count: len(wg.Items)}
+			if _, a, ok := al.find(c.AssetType, wg.Key); ok {
+				wd.TargetPct, wd.DriftPct = money.PctPtr(a.TargetPct), money.PctPtr(a.DriftPct)
+			}
 			if withItems {
 				wd.Items = make([]InvestmentDTO, 0, len(wg.Items))
 				for _, it := range wg.Items {

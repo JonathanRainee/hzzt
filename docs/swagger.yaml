@@ -610,6 +610,20 @@ definitions:
       requestId:
         type: string
     type: object
+  investments.AllocationsResponse:
+    properties:
+      categories:
+        items:
+          $ref: '#/definitions/investments.CategoryAllocationDTO'
+        type: array
+      currency:
+        example: IDR
+        type: string
+      warnings:
+        items:
+          $ref: '#/definitions/currency.Warning'
+        type: array
+    type: object
   investments.BaseValues:
     properties:
       costBasis:
@@ -627,6 +641,30 @@ definitions:
       unrealizedPl:
         type: string
     type: object
+  investments.CategoryAllocationDTO:
+    properties:
+      assetType:
+        enum:
+        - CRYPTO
+        - ID_STOCK
+        - US_STOCK
+        - MUTUAL_FUND
+        - GLOBAL_ETF
+        type: string
+      assignedPct:
+        example: "70.00"
+        type: string
+      label:
+        example: Crypto
+        type: string
+      unallocatedPct:
+        example: "30.00"
+        type: string
+      wrappers:
+        items:
+          $ref: '#/definitions/investments.WrapperAllocationDTO'
+        type: array
+    type: object
   investments.CategoryGroupDTO:
     properties:
       assetType:
@@ -637,6 +675,11 @@ definitions:
         - MUTUAL_FUND
         - GLOBAL_ETF
         type: string
+      assignedPct:
+        description: AssignedPct is the sum of the wrapper percentages set in this
+          asset type; UnallocatedPct = 100 - assigned.
+        example: "70.00"
+        type: string
       cost:
         example: "700000"
         type: string
@@ -645,6 +688,9 @@ definitions:
         type: string
       pctOfTotal:
         example: "60.00"
+        type: string
+      unallocatedPct:
+        example: "30.00"
         type: string
       unrealizedPl:
         example: "200000"
@@ -659,6 +705,15 @@ definitions:
         items:
           $ref: '#/definitions/investments.WrapperGroupDTO'
         type: array
+    type: object
+  investments.CategoryTotalsDTO:
+    properties:
+      assignedPct:
+        example: "70.00"
+        type: string
+      unallocatedPct:
+        example: "30.00"
+        type: string
     type: object
   investments.CreateRequestDoc:
     properties:
@@ -999,6 +1054,51 @@ definitions:
     required:
     - participants
     type: object
+  investments.SetTargetRequest:
+    properties:
+      targetPct:
+        description: TargetPct is a percentage from 0 to 100 with at most 2 decimals
+          ("40.00"); null clears it.
+        example: "40.00"
+        type: string
+    type: object
+  investments.SetTargetResponse:
+    properties:
+      actualPct:
+        description: ActualPct is the wrapper's share of its asset type's value; null
+          when the asset type is worth 0.
+        example: "33.33"
+        type: string
+      assetType:
+        enum:
+        - CRYPTO
+        - ID_STOCK
+        - US_STOCK
+        - MUTUAL_FUND
+        - GLOBAL_ETF
+        type: string
+      category:
+        $ref: '#/definitions/investments.CategoryTotalsDTO'
+      driftPct:
+        description: DriftPct is actualPct - targetPct; null unless both are known.
+        example: "-6.67"
+        type: string
+      key:
+        example: binance
+        type: string
+      label:
+        example: Binance
+        type: string
+      targetPct:
+        description: TargetPct is the percentage set for this wrapper; null when none
+          is set (not 0).
+        example: "40.00"
+        type: string
+      wrapper:
+        description: Wrapper is the display name; null for the unassigned group.
+        example: Binance
+        type: string
+    type: object
   investments.ShareChangeDTO:
     properties:
       after:
@@ -1123,6 +1223,41 @@ definitions:
           $ref: '#/definitions/currency.Warning'
         type: array
     type: object
+  investments.WrapperAllocationDTO:
+    properties:
+      actualPct:
+        description: ActualPct is the wrapper's share of its asset type's value; null
+          when the asset type is worth 0.
+        example: "33.33"
+        type: string
+      assetType:
+        enum:
+        - CRYPTO
+        - ID_STOCK
+        - US_STOCK
+        - MUTUAL_FUND
+        - GLOBAL_ETF
+        type: string
+      driftPct:
+        description: DriftPct is actualPct - targetPct; null unless both are known.
+        example: "-6.67"
+        type: string
+      key:
+        example: binance
+        type: string
+      label:
+        example: Binance
+        type: string
+      targetPct:
+        description: TargetPct is the percentage set for this wrapper; null when none
+          is set (not 0).
+        example: "40.00"
+        type: string
+      wrapper:
+        description: Wrapper is the display name; null for the unassigned group.
+        example: Binance
+        type: string
+    type: object
   investments.WrapperGroupDTO:
     properties:
       cost:
@@ -1130,6 +1265,9 @@ definitions:
         type: string
       count:
         type: integer
+      driftPct:
+        example: "6.67"
+        type: string
       items:
         items:
           $ref: '#/definitions/investments.InvestmentDTO'
@@ -1148,6 +1286,11 @@ definitions:
         type: string
       pctOfTotal:
         example: "40.00"
+        type: string
+      targetPct:
+        description: TargetPct is the percentage set for this wrapper (null when none);
+          DriftPct = pctOfCategory - targetPct.
+        example: "60.00"
         type: string
       unrealizedPl:
         example: "200000"
@@ -4146,6 +4289,104 @@ paths:
       security:
       - BearerAuth: []
       summary: Investments grouped by asset type and wrapper
+      tags:
+      - investments
+  /spaces/{spaceId}/investments/wrappers:
+    get:
+      description: 'Per asset type: each wrapper (exchange, broker or platform) with
+        its `targetPct` (null when none is set), its `actualPct` share of the asset
+        type''s base-currency value and `driftPct` (actual - target), plus the type''s
+        `assignedPct` and `unallocatedPct` (100 - assigned). A wrapper whose percentage
+        is set but that no longer holds any investment is still listed (actualPct
+        0.00). The same fields are embedded in GET /investments/grouped.'
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: 'shared: also count investments other people shared into this
+          space for the actual share'
+        in: query
+        name: include
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/investments.AllocationsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Planned and actual share of every wrapper
+      tags:
+      - investments
+  /spaces/{spaceId}/investments/wrappers/{assetType}/{wrapperKey}:
+    patch:
+      consumes:
+      - application/json
+      description: 'Edits one wrapper at a time. `wrapperKey` is the wrapper lower-cased
+        and URL-encoded (any casing and extra whitespace is accepted; `_unassigned`
+        is rejected). The percentages set in an asset type may add up to at most 100.00;
+        the rest stays unallocated (422 ALLOCATION_EXCEEDS_100, with `details.assigned`
+        by the other wrappers and `details.available`). `targetPct: null` clears the
+        percentage. The wrapper must hold a live investment or already have a percentage
+        (404 WRAPPER_NOT_FOUND). Any member of the space may edit; every write records
+        who did it. The response carries the asset type''s new assigned and unallocated
+        percentage.'
+      parameters:
+      - description: Space ID
+        in: path
+        name: spaceId
+        required: true
+        type: string
+      - description: CRYPTO, ID_STOCK, US_STOCK, MUTUAL_FUND or GLOBAL_ETF
+        in: path
+        name: assetType
+        required: true
+        type: string
+      - description: Wrapper, lower-cased and URL-encoded
+        in: path
+        name: wrapperKey
+        required: true
+        type: string
+      - description: Percentage
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/investments.SetTargetRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/investments.SetTargetResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "404":
+          description: space or WRAPPER_NOT_FOUND
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+        "422":
+          description: ALLOCATION_EXCEEDS_100
+          schema:
+            $ref: '#/definitions/httpx.ErrorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Set or clear the percentage of one wrapper
       tags:
       - investments
   /spaces/{spaceId}/invitations:
