@@ -2687,6 +2687,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Also opens investments shared into this space by someone else: the response is then ` + "`" + `ownership: SHARED_IN` + "`" + `, valued with the caller's share and the space's base currency, with other participants' emails masked.",
                 "produces": [
                     "application/json"
                 ],
@@ -2755,6 +2756,12 @@ const docTemplate = `{
                     "204": {
                         "description": "No Content"
                     },
+                    "403": {
+                        "description": "OWNER_ONLY (investment shared into this space)",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
                     "404": {
                         "description": "Not Found",
                         "schema": {
@@ -2814,6 +2821,12 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "403": {
+                        "description": "OWNER_ONLY (investment shared into this space)",
                         "schema": {
                             "$ref": "#/definitions/httpx.ErrorEnvelope"
                         }
@@ -3040,6 +3053,12 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/investments.InvestmentDTO"
+                        }
+                    },
+                    "403": {
+                        "description": "OWNER_ONLY (investment shared into this space)",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
                         }
                     },
                     "404": {
@@ -4286,6 +4305,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/httpx.ErrorEnvelope"
                         }
                     },
+                    "403": {
+                        "description": "OWNER_ONLY (BUY/SELL on an investment shared into this space)",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
                     "404": {
                         "description": "space, wallet or investment not found",
                         "schema": {
@@ -4332,6 +4357,12 @@ const docTemplate = `{
                 "responses": {
                     "204": {
                         "description": "No Content"
+                    },
+                    "403": {
+                        "description": "OWNER_ONLY (BUY/SELL on an investment shared into this space)",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
                     },
                     "404": {
                         "description": "Not Found",
@@ -4398,6 +4429,12 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "403": {
+                        "description": "OWNER_ONLY (BUY/SELL on an investment shared into this space)",
                         "schema": {
                             "$ref": "#/definitions/httpx.ErrorEnvelope"
                         }

@@ -213,6 +213,89 @@ func (q *Queries) GetInvestmentForUpdate(ctx context.Context, arg GetInvestmentF
 	return i, err
 }
 
+const getInvestmentForViewer = `-- name: GetInvestmentForViewer :one
+SELECT i.id, i.space_id, i.asset_type, i.price_mode, i.name, i.symbol, i.icon, i.quote_currency, i.quantity, i.avg_buy_price, i.manual_price, i.fees, i.manual_current_value, i.purchase_date, i.estimated_annual_change_pct, i.manual_fx_rate, i.details, i.instrument_id, i.is_shared, i.created_by_id, i.created_at, i.updated_at, i.deleted_at FROM investments i
+WHERE i.id = $1 AND i.deleted_at IS NULL
+  AND (
+    i.space_id = $2
+    OR EXISTS (
+      SELECT 1 FROM investment_participants p
+      WHERE p.investment_id = i.id AND p.status = 'ACTIVE' AND p.role = 'PARTICIPANT'
+        AND p.user_id = $3 AND p.attached_space_id = $2
+    )
+  )
+`
+
+type GetInvestmentForViewerParams struct {
+	ID      uuid.UUID     `json:"id"`
+	SpaceID uuid.UUID     `json:"space_id"`
+	UserID  uuid.NullUUID `json:"user_id"`
+}
+
+// An investment the viewer owns through this space, or that is shared with them and attached to this space.
+func (q *Queries) GetInvestmentForViewer(ctx context.Context, arg GetInvestmentForViewerParams) (Investment, error) {
+	row := q.db.QueryRow(ctx, getInvestmentForViewer, arg.ID, arg.SpaceID, arg.UserID)
+	var i Investment
+	err := row.Scan(
+		&i.ID,
+		&i.SpaceID,
+		&i.AssetType,
+		&i.PriceMode,
+		&i.Name,
+		&i.Symbol,
+		&i.Icon,
+		&i.QuoteCurrency,
+		&i.Quantity,
+		&i.AvgBuyPrice,
+		&i.ManualPrice,
+		&i.Fees,
+		&i.ManualCurrentValue,
+		&i.PurchaseDate,
+		&i.EstimatedAnnualChangePct,
+		&i.ManualFxRate,
+		&i.Details,
+		&i.InstrumentID,
+		&i.IsShared,
+		&i.CreatedByID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const getViewerParticipation = `-- name: GetViewerParticipation :one
+SELECT id, investment_id, role, user_id, display_name, email, share_bps, status, attached_space_id, invited_at, responded_at FROM investment_participants
+WHERE investment_id = $1 AND user_id = $2 AND attached_space_id = $3
+  AND status = 'ACTIVE' AND role = 'PARTICIPANT'
+`
+
+type GetViewerParticipationParams struct {
+	InvestmentID    uuid.UUID     `json:"investment_id"`
+	UserID          uuid.NullUUID `json:"user_id"`
+	AttachedSpaceID uuid.NullUUID `json:"attached_space_id"`
+}
+
+// The viewer's live participant row of a shared investment, as seen from the space it is attached to.
+func (q *Queries) GetViewerParticipation(ctx context.Context, arg GetViewerParticipationParams) (InvestmentParticipant, error) {
+	row := q.db.QueryRow(ctx, getViewerParticipation, arg.InvestmentID, arg.UserID, arg.AttachedSpaceID)
+	var i InvestmentParticipant
+	err := row.Scan(
+		&i.ID,
+		&i.InvestmentID,
+		&i.Role,
+		&i.UserID,
+		&i.DisplayName,
+		&i.Email,
+		&i.ShareBps,
+		&i.Status,
+		&i.AttachedSpaceID,
+		&i.InvitedAt,
+		&i.RespondedAt,
+	)
+	return i, err
+}
+
 const listInvestments = `-- name: ListInvestments :many
 SELECT id, space_id, asset_type, price_mode, name, symbol, icon, quote_currency, quantity, avg_buy_price, manual_price, fees, manual_current_value, purchase_date, estimated_annual_change_pct, manual_fx_rate, details, instrument_id, is_shared, created_by_id, created_at, updated_at, deleted_at FROM investments
 WHERE space_id = $1 AND deleted_at IS NULL

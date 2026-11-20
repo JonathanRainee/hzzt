@@ -230,6 +230,7 @@ func transferID(r *http.Request) (uuid.UUID, error) {
 //	@Failure		400		{object}	httpx.ErrorEnvelope
 //	@Failure		404		{object}	httpx.ErrorEnvelope	"space, wallet or investment not found"
 //	@Failure		422		{object}	httpx.ErrorEnvelope	"TRANSFER_SAME_WALLET / TRANSFER_AMOUNT_REQUIRED / NOT_SUPPORTED_YET / INSUFFICIENT_QUANTITY / FX_RATE_UNAVAILABLE"
+//	@Failure	403	{object}	httpx.ErrorEnvelope	"OWNER_ONLY (BUY/SELL on an investment shared into this space)"
 //	@Router			/spaces/{spaceId}/transfers [post]
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	user, _ := auth.UserFromContext(r.Context())
@@ -319,6 +320,7 @@ func (h *Handler) trade(r *http.Request, userID, spaceID uuid.UUID, req createRe
 //	@Failure		404		{object}	httpx.ErrorEnvelope
 //	@Failure		409		{object}	httpx.ErrorEnvelope	"POSITION_CHANGED_SINCE"
 //	@Failure		422		{object}	httpx.ErrorEnvelope	"TRANSFER_SAME_WALLET / TRANSFER_AMOUNT_REQUIRED / NOT_SUPPORTED_YET / INSUFFICIENT_QUANTITY"
+//	@Failure	403	{object}	httpx.ErrorEnvelope	"OWNER_ONLY (BUY/SELL on an investment shared into this space)"
 //	@Router			/spaces/{spaceId}/transfers/{id} [patch]
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	id, err := transferID(r)
@@ -390,6 +392,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 //	@Success	204
 //	@Failure	404	{object}	httpx.ErrorEnvelope
 //	@Failure	409	{object}	httpx.ErrorEnvelope	"POSITION_CHANGED_SINCE"
+//	@Failure	403	{object}	httpx.ErrorEnvelope	"OWNER_ONLY (BUY/SELL on an investment shared into this space)"
 //	@Router		/spaces/{spaceId}/transfers/{id} [delete]
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	id, err := transferID(r)

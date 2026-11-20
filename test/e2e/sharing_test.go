@@ -618,27 +618,32 @@ func TestSharedInvestmentsAreOwnerOnlyAndReadOnlyForOthers(t *testing.T) {
 	w := s.newWallet(e.owner, e.sid, wal("Cash"))
 	require.Equal(t, http.StatusOK, s.Do(http.MethodPut, walURL(e.sid, "/", w.ID, "/balance"), map[string]any{"newBalance": "10000"}, bearer(e.owner.AccessToken)).Status)
 
-	t.Run("a participant cannot touch it: every write is 404", func(t *testing.T) {
+	t.Run("a participant can open it but not change it: writes are 403 OWNER_ONLY", func(t *testing.T) {
 		mine := spaceIDOf(bob)
+		wb := s.newWallet(bob, mine, wal("Bob cash"))
 		for _, c := range []struct {
 			method, path string
 			body         any
 		}{
 			{http.MethodPatch, invURL(mine, "/", e.inv.ID), map[string]any{"name": "Mine now"}},
 			{http.MethodDelete, invURL(mine, "/", e.inv.ID), nil},
-			{http.MethodGet, invURL(mine, "/", e.inv.ID), nil},
 			{http.MethodPost, invURL(mine, "/", e.inv.ID, "/refresh-price"), nil},
 			{http.MethodPut, invURL(mine, "/", e.inv.ID, "/participants"), map[string]any{"participants": []map[string]any{owner("100")}}},
 			{http.MethodGet, invURL(mine, "/", e.inv.ID, "/participants"), nil},
 			{http.MethodDelete, invURL(mine, "/", e.inv.ID, "/participants"), nil},
+			{http.MethodGet, invURL(mine, "/", e.inv.ID, "/share-changes"), nil},
+			{http.MethodPost, trURL(mine), map[string]any{"from": walletEnd(wb), "to": leg(e.inv.ID, "1", "100", "")}},
 		} {
 			res := s.Do(c.method, c.path, c.body, bearer(bob.AccessToken))
-			require.Equal(t, http.StatusNotFound, res.Status, "%s %s: %s", c.method, c.path, res.Body)
+			require.Equal(t, http.StatusForbidden, res.Status, "%s %s: %s", c.method, c.path, res.Body)
+			assert.Equal(t, "OWNER_ONLY", errCode(t, res), "%s %s", c.method, c.path)
 		}
 		// and through the owner's space he is simply not a member
 		expectCrossSpace404(t, s, bob, http.MethodPatch, invURL(e.sid, "/", e.inv.ID), map[string]any{"name": "x"})
 		expectCrossSpace404(t, s, bob, http.MethodGet, e.partsURL(), nil)
 		assert.Equal(t, "Apple", e.invEnv().get(e.inv.ID).Name, "unchanged")
+		// a random id stays a plain 404, no leak either way
+		assert.Equal(t, http.StatusNotFound, s.Do(http.MethodPatch, invURL(mine, "/", uuid.NewString()), map[string]any{"name": "x"}, bearer(bob.AccessToken)).Status)
 	})
 
 	t.Run("another member of the owner's space reads but cannot write: 403 OWNER_ONLY", func(t *testing.T) {
@@ -789,4 +794,85 @@ func TestShareChangeAuditTrail(t *testing.T) {
 	assert.Empty(t, changes[1].Before, "the first change started from nothing")
 
 	assert.Equal(t, http.StatusNotFound, s.Get(invURL(e.sid, "/", uuid.NewString(), "/share-changes"), bearer(e.owner.AccessToken)).Status)
+}
+
+func TestSharedInInvestmentDetailForTheParticipant(t *testing.T) {
+	s := NewTestServer(t)
+	require.NoError(t, s.Currency.Refresh(context.Background())) // 1 USD = 16000 IDR
+	e := newShareEnv(t, s)
+	bob := s.register("bob@example.com")
+	carol := s.register("carol@example.com") // stays INVITED
+	dave := s.register("dave@example.com")   // declines
+	erin := s.register("erin@example.com")   // leaves
+	fred := s.register("fred@example.com")   // gets removed
+	out := e.mustPut(owner("30"), emailP("bob@example.com", "Bob", "20"), emailP("carol@example.com", "Carol", "10"),
+		emailP("dave@example.com", "Dave", "10"), emailP("erin@example.com", "Erin", "10"), emailP("fred@example.com", "Fred", "20"))
+	acc := func(u session, name string) {
+		require.Equal(t, http.StatusNoContent, s.acceptShare(u, byName(out.Items, name).ID, spaceIDOf(u)).Status)
+	}
+	acc(bob, "Bob")
+	acc(erin, "Erin")
+	acc(fred, "Fred")
+	require.Equal(t, http.StatusNoContent, s.declineShare(dave, byName(out.Items, "Dave").ID).Status)
+	require.Equal(t, http.StatusNoContent, s.leaveShare(erin, byName(out.Items, "Erin").ID).Status)
+	// Fred is left out: removed; the others stay by id and the owner takes Fred's 20
+	keep := func(name, email, pct string) map[string]any {
+		m := emailP(email, name, pct)
+		m["participantId"] = byName(out.Items, name).ID
+		return m
+	}
+	e.mustPut(owner("50"), keep("Bob", "bob@example.com", "20"), keep("Carol", "carol@example.com", "10"),
+		keep("Dave", "dave@example.com", "10"), map[string]any{"participantId": byName(out.Items, "Erin").ID, "displayName": "Erin", "sharePct": "10"})
+
+	t.Run("an active participant opens it in their attached space", func(t *testing.T) {
+		require.Equal(t, http.StatusOK, s.Do(http.MethodPatch, "/api/v1/spaces/"+spaceIDOf(bob), map[string]any{"baseCurrency": "IDR"}, bearer(bob.AccessToken)).Status)
+		res := s.Get(invURL(spaceIDOf(bob), "/", e.inv.ID), bearer(bob.AccessToken))
+		require.Equal(t, http.StatusOK, res.Status, string(res.Body))
+		var it shareListItem
+		res.JSON(t, &it)
+		assert.Equal(t, "SHARED_IN", it.Ownership)
+		assert.Equal(t, 2000, it.MyShareBps)
+		require.NotNil(t, it.TotalValuation)
+		assert.True(t, dec("1000.01").Equal(dec(it.TotalValuation.MarketValue)), "the whole in the quote currency")
+		assert.True(t, dec("200.002").Equal(dec(it.Valuation.MarketValue)), "Bob's 20%%: %s", it.Valuation.MarketValue)
+		require.NotNil(t, it.Valuation.Base)
+		assert.Equal(t, "IDR", it.Valuation.Base.Currency, "valued in Bob's base currency, not the owner's")
+		assert.True(t, dec("3200032").Equal(dec(it.Valuation.Base.MarketValue)), it.Valuation.Base.MarketValue)
+		raw := fmt.Sprint(it)
+		assert.NotContains(t, raw, "jane@example.com")
+		assert.NotContains(t, raw, e.sid)
+		me := byName(it.Participants, "Bob")
+		assert.True(t, me.IsMe)
+		require.NotNil(t, byName(it.Participants, "Carol").Email)
+		assert.Equal(t, "c***@example.com", *byName(it.Participants, "Carol").Email)
+		// it equals what the list shows
+		l := s.sharedList(bob, spaceIDOf(bob), "?include=shared")
+		assert.Equal(t, l.Items[0].Valuation.Base.MarketValue, it.Valuation.Base.MarketValue)
+	})
+
+	t.Run("everyone else gets 404", func(t *testing.T) {
+		for name, u := range map[string]session{"invited": carol, "declined": dave, "left": erin, "removed": fred} {
+			assert.Equal(t, http.StatusNotFound, s.Get(invURL(spaceIDOf(u), "/", e.inv.ID), bearer(u.AccessToken)).Status, name)
+		}
+		// the owner's space is off limits to a non-member, and unknown ids are 404
+		expectCrossSpace404(t, s, bob, http.MethodGet, invURL(e.sid, "/", e.inv.ID), nil)
+		assert.Equal(t, http.StatusNotFound, s.Get(invURL(spaceIDOf(bob), "/", uuid.NewString()), bearer(bob.AccessToken)).Status)
+		assert.Equal(t, http.StatusNotFound, s.Get(invURL(spaceIDOf(bob), "/", "nope"), bearer(bob.AccessToken)).Status)
+	})
+
+	t.Run("only the attached space opens it", func(t *testing.T) {
+		res := s.Do(http.MethodPost, "/api/v1/spaces", map[string]any{"name": "Second"}, bearer(bob.AccessToken))
+		var sp spaceBody
+		res.JSON(t, &sp)
+		assert.Equal(t, http.StatusNotFound, s.Get(invURL(sp.ID, "/", e.inv.ID), bearer(bob.AccessToken)).Status)
+	})
+
+	t.Run("the owner still sees their own view", func(t *testing.T) {
+		res := s.Get(invURL(e.sid, "/", e.inv.ID), bearer(e.owner.AccessToken))
+		require.Equal(t, http.StatusOK, res.Status)
+		var it shareListItem
+		res.JSON(t, &it)
+		assert.Equal(t, "OWNER", it.Ownership)
+		assert.Equal(t, 5000, it.MyShareBps)
+	})
 }

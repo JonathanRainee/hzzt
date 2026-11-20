@@ -52,3 +52,22 @@ GROUP BY t.investment_id;
 -- name: GetInvestmentByID :one
 -- Any live investment, regardless of space (for participant flows).
 SELECT * FROM investments WHERE id = $1 AND deleted_at IS NULL;
+
+-- name: GetInvestmentForViewer :one
+-- An investment the viewer owns through this space, or that is shared with them and attached to this space.
+SELECT i.* FROM investments i
+WHERE i.id = $1 AND i.deleted_at IS NULL
+  AND (
+    i.space_id = $2
+    OR EXISTS (
+      SELECT 1 FROM investment_participants p
+      WHERE p.investment_id = i.id AND p.status = 'ACTIVE' AND p.role = 'PARTICIPANT'
+        AND p.user_id = $3 AND p.attached_space_id = $2
+    )
+  );
+
+-- name: GetViewerParticipation :one
+-- The viewer's live participant row of a shared investment, as seen from the space it is attached to.
+SELECT * FROM investment_participants
+WHERE investment_id = $1 AND user_id = $2 AND attached_space_id = $3
+  AND status = 'ACTIVE' AND role = 'PARTICIPANT';
