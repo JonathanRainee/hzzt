@@ -1106,6 +1106,9 @@ const docTemplate = `{
                 "consumes": [
                     "application/json"
                 ],
+                "produces": [
+                    "application/json"
+                ],
                 "tags": [
                     "sharing"
                 ],
@@ -1129,8 +1132,11 @@ const docTemplate = `{
                     }
                 ],
                 "responses": {
-                    "204": {
-                        "description": "No Content"
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/investments.AcceptResponse"
+                        }
                     },
                     "400": {
                         "description": "Bad Request",
@@ -3171,7 +3177,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/investments.ParticipantsResponse"
+                            "$ref": "#/definitions/investments.SetParticipantsResponse"
                         }
                     },
                     "400": {
@@ -3206,6 +3212,10 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Answers 204. With ` + "`" + `?return=investment` + "`" + ` it answers 200 with the investment as it is now, so the client can update in place.",
+                "produces": [
+                    "application/json"
+                ],
                 "tags": [
                     "sharing"
                 ],
@@ -3224,9 +3234,21 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "investment: answer 200 with the investment instead of 204",
+                        "name": "return",
+                        "in": "query"
                     }
                 ],
                 "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/investments.InvestmentDTO"
+                        }
+                    },
                     "204": {
                         "description": "No Content"
                     },
@@ -5071,6 +5093,71 @@ const docTemplate = `{
                 }
             }
         },
+        "/spaces/{spaceId}/wallets/{id}/display-prefs": {
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Per user and synced across devices; other members of the space never see them. Fields that are not sent keep their value; a result with nothing hidden is the default and is not stored. Also returned as ` + "`" + `displayPrefs` + "`" + ` by GET /wallets and GET /wallets/{id}.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "wallets"
+                ],
+                "summary": "Set my display preferences of a wallet (hide logo, name, type)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Space ID",
+                        "name": "spaceId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Wallet ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Preferences to change",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/wallets.PrefsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/wallets.DisplayPrefs"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "space or WALLET_NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/httpx.ErrorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/spaces/{spaceId}/wallets/{id}/top-up": {
             "post": {
                 "security": [
@@ -6078,6 +6165,17 @@ const docTemplate = `{
                 }
             }
         },
+        "investments.AcceptResponse": {
+            "type": "object",
+            "properties": {
+                "investmentId": {
+                    "type": "string"
+                },
+                "spaceId": {
+                    "type": "string"
+                }
+            }
+        },
         "investments.AllocationsResponse": {
             "type": "object",
             "properties": {
@@ -6701,6 +6799,20 @@ const docTemplate = `{
                     "minItems": 1,
                     "items": {
                         "$ref": "#/definitions/investments.participantRequest"
+                    }
+                }
+            }
+        },
+        "investments.SetParticipantsResponse": {
+            "type": "object",
+            "properties": {
+                "investment": {
+                    "$ref": "#/definitions/investments.InvestmentDTO"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/investments.ParticipantDTO"
                     }
                 }
             }
@@ -8273,6 +8385,20 @@ const docTemplate = `{
                 }
             }
         },
+        "wallets.DisplayPrefs": {
+            "type": "object",
+            "properties": {
+                "hideLogo": {
+                    "type": "boolean"
+                },
+                "hideName": {
+                    "type": "boolean"
+                },
+                "hideType": {
+                    "type": "boolean"
+                }
+            }
+        },
         "wallets.ListResponse": {
             "type": "object",
             "properties": {
@@ -8284,6 +8410,20 @@ const docTemplate = `{
                 },
                 "total": {
                     "$ref": "#/definitions/currency.AggregateResult"
+                }
+            }
+        },
+        "wallets.PrefsRequest": {
+            "type": "object",
+            "properties": {
+                "hideLogo": {
+                    "type": "boolean"
+                },
+                "hideName": {
+                    "type": "boolean"
+                },
+                "hideType": {
+                    "type": "boolean"
                 }
             }
         },
@@ -8344,6 +8484,14 @@ const docTemplate = `{
                 "currency": {
                     "type": "string",
                     "example": "IDR"
+                },
+                "displayPrefs": {
+                    "description": "DisplayPrefs are the calling user's own display choices for this wallet (all false by default);\nother members never see them.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/wallets.DisplayPrefs"
+                        }
+                    ]
                 },
                 "icon": {
                     "type": "string"

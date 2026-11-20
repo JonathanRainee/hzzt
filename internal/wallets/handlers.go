@@ -52,6 +52,7 @@ func (h *Handler) Mount(r chi.Router) {
 		r.Get(p+"/{id}", h.get)
 		r.Patch(p+"/{id}", h.update)
 		r.Put(p+"/{id}/balance", h.setBalance)
+		r.Patch(p+"/{id}/display-prefs", h.updateDisplayPrefs)
 		r.Delete(p+"/{id}", h.delete)
 	})
 }
@@ -75,6 +76,9 @@ type WalletDTO struct {
 	IsFavorite   bool         `json:"isFavorite"`
 	SortOrder    int          `json:"sortOrder"`
 	CardStyle    CardStyle    `json:"cardStyle"`
+	// DisplayPrefs are the calling user's own display choices for this wallet (all false by default);
+	// other members never see them.
+	DisplayPrefs DisplayPrefs `json:"displayPrefs"`
 	// BaseBalance and PctOfTotal are set in the list response only: the balance in the space's
 	// base currency, and its share of the total (percentages add up to exactly 100.00). Null
 	// without an FX rate, or when the total is 0.
@@ -217,11 +221,18 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, err)
 		return
 	}
+	user, _ := auth.UserFromContext(r.Context())
+	prefs, err := h.svc.Prefs(r.Context(), user.ID, spaces.SpaceIDFromContext(r.Context()))
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
 	items := make([]WalletDTO, 0, len(res.Wallets))
 	var idx []int
 	var vals []decimal.Decimal
 	for i, x := range res.Wallets {
 		d := ToDTO(x)
+		d.DisplayPrefs = prefs[x.ID]
 		if v, ok := res.BaseBalance[x.ID]; ok {
 			ba := money.NewAmount(v, res.Total.Currency)
 			d.BaseBalance = &ba
@@ -289,6 +300,59 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, ToDTO(wl))
 }
 
+// writeWallet answers with one wallet including the calling user's display preferences.
+func (h *Handler) writeWallet(w http.ResponseWriter, r *http.Request, status int, wl Wallet) {
+	user, _ := auth.UserFromContext(r.Context())
+	prefs, err := h.svc.PrefsOf(r.Context(), user.ID, wl.ID)
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	d := ToDTO(wl)
+	d.DisplayPrefs = prefs
+	writeJSON(w, status, d)
+}
+
+// PrefsRequest changes some of the calling user's display preferences of a wallet.
+type PrefsRequest struct {
+	HideLogo *bool `json:"hideLogo"`
+	HideName *bool `json:"hideName"`
+	HideType *bool `json:"hideType"`
+}
+
+// updateDisplayPrefs godoc
+//
+//	@Summary		Set my display preferences of a wallet (hide logo, name, type)
+//	@Description	Per user and synced across devices; other members of the space never see them. Fields that are not sent keep their value; a result with nothing hidden is the default and is not stored. Also returned as `displayPrefs` by GET /wallets and GET /wallets/{id}.
+//	@Tags			wallets
+//	@Security		BearerAuth
+//	@Accept			json
+//	@Produce		json
+//	@Param			spaceId	path		string			true	"Space ID"
+//	@Param			id		path		string			true	"Wallet ID"
+//	@Param			body	body		PrefsRequest	true	"Preferences to change"
+//	@Success		200		{object}	DisplayPrefs
+//	@Failure		400		{object}	httpx.ErrorEnvelope
+//	@Failure		404		{object}	httpx.ErrorEnvelope	"space or WALLET_NOT_FOUND"
+//	@Router			/spaces/{spaceId}/wallets/{id}/display-prefs [patch]
+func (h *Handler) updateDisplayPrefs(w http.ResponseWriter, r *http.Request) {
+	user, _ := auth.UserFromContext(r.Context())
+	id, err := walletID(r)
+	var req PrefsRequest
+	if err == nil {
+		req, err = httpx.DecodeAndValidate[PrefsRequest](r)
+	}
+	var out DisplayPrefs
+	if err == nil {
+		out, err = h.svc.UpdatePrefs(r.Context(), spaces.SpaceIDFromContext(r.Context()), user.ID, id, PrefsPatch(req))
+	}
+	if err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 // get godoc
 //
 //	@Summary	Get a wallet
@@ -311,7 +375,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, ToDTO(wl))
+	h.writeWallet(w, r, http.StatusOK, wl)
 }
 
 // update godoc
@@ -363,7 +427,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, ToDTO(wl))
+	h.writeWallet(w, r, http.StatusOK, wl)
 }
 
 // setBalance godoc
@@ -404,7 +468,7 @@ func (h *Handler) setBalance(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, ToDTO(wl))
+	h.writeWallet(w, r, http.StatusOK, wl)
 }
 
 // delete godoc

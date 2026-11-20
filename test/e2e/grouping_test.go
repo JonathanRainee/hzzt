@@ -213,7 +213,7 @@ func TestGroupedIncludesSharedInAndIsMembersOnly(t *testing.T) {
 	own := (&invEnv{s: s, u: bob, sid: spaceIDOf(bob)}).must(crypto("Bitcoin", "Binance", "1", "100"))
 	require.NotEmpty(t, own.ID)
 	out := e.mustPut(owner("50"), emailP("bob@example.com", "Bob", "50"))
-	require.Equal(t, http.StatusNoContent, s.acceptShare(bob, byName(out.Items, "Bob").ID, spaceIDOf(bob)).Status)
+	require.Equal(t, http.StatusOK, s.acceptShare(bob, byName(out.Items, "Bob").ID, spaceIDOf(bob)).Status)
 
 	plain := s.grouped(bob, spaceIDOf(bob), "")
 	require.Len(t, plain.Categories, 1, "shared-in items only with include=shared")
